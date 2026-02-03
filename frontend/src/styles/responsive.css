@@ -1,0 +1,412 @@
+/* Professional Responsive Design System */
+
+/* Mobile-first breakpoints */
+:root {
+  --breakpoint-xs: 0px;      /* Extra small devices (portrait phones) */
+  --breakpoint-sm: 640px;    /* Small devices (landscape phones) */
+  --breakpoint-md: 768px;    /* Medium devices (tablets) */
+  --breakpoint-lg: 1024px;   /* Large devices (desktops) */
+  --breakpoint-xl: 1280px;   /* Extra large devices (large desktops) */
+  --breakpoint-2xl: 1536px;  /* 2X large devices (extra large desktops) */
+}
+
+/* Container queries for component-level responsiveness */
+@container (min-width: 320px) {
+  .cq-sm {
+    /* Styles for small containers */
+  }
+}
+
+@container (min-width: 480px) {
+  .cq-md {
+    /* Styles for medium containers */
+  }
+}
+
+@container (min-width: 640px) {
+  .cq-lg {
+    /* Styles for large containers */
+  }
+}
+
+/* Grid system */
+.grid-responsive {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.grid-responsive-cols-1 {
+  grid-template-columns: 1fr;
+}
+
+.grid-responsive-cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-responsive-cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-responsive-cols-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* Responsive grid adjustments */
+@media (min-width: 640px) {
+  .grid-responsive-cols-1-sm {
+    grid-template-columns: 1fr;
+  }
+  
+  .grid-responsive-cols-2-sm {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .grid-responsive-cols-3-sm {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .grid-responsive-cols-4-sm {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .grid-responsive-cols-1-md {
+    grid-template-columns: 1fr;
+  }
+  
+  .grid-responsive-cols-2-md {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .grid-responsive-cols-3-md {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .grid-responsive-cols-4-md {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid-responsive-cols-1-lg {
+    grid-template-columns: 1fr;
+  }
+  
+  .grid-responsive-cols-2-lg {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .grid-responsive-cols-3-lg {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .grid-responsive-cols-4-lg {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .grid-responsive-cols-1-xl {
+    grid-template-columns: 1fr;
+  }
+  
+  .grid-responsive-cols-2-xl {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .grid-responsive-cols-3-xl {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .grid-responsive-cols-4-xl {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Flexbox responsive utilities */
+.flex-responsive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.flex-responsive-row {
+  flex-direction: row;
+}
+
+.flex-responsive-col {
+  flex-direction: column;
+}
+
+@media (min-width: 768px) {
+  .md\:flex-responsive-row {
+    flex-direction: row;
+  }
+  
+  .md\:flex-responsive-col {
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lg\:flex-responsive-row {
+    flex-direction: row;
+  }
+  
+  .lg\:flex-responsive-col {
+    flex-direction: column;
+  }
+}
+
+/* Responsive typography scaling */
+.text-responsive {
+  font-size: clamp(0.875rem, 2.5vw, 1.125rem);
+  line-height: 1.5;
+}
+
+.text-responsive-lg {
+  font-size: clamp(1.25rem, 3vw, 1.875rem);
+  line-height: 1.3;
+}
+
+.text-responsive-xl {
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  line-height: 1.2;
+}
+
+/* Responsive spacing */
+.space-responsive {
+  padding: clamp(1rem, 4vw, 2rem);
+}
+
+.space-responsive-tight {
+  padding: clamp(0.5rem, 2vw, 1rem);
+}
+
+.space-responsive-loose {
+  padding: clamp(2rem, 6vw, 4rem);
+}
+
+/* Responsive card layouts */
+.card-responsive {
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (min-width: 640px) {
+  .card-responsive {
+    padding: var(--space-6);
+  }
+}
+
+@media (min-width: 1024px) {
+  .card-responsive {
+    padding: var(--space-8);
+  }
+}
+
+/* Responsive form elements */
+.form-element-responsive {
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (min-width: 640px) {
+  .form-element-responsive {
+    max-width: 400px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .form-element-responsive {
+    max-width: 500px;
+  }
+}
+
+/* Responsive navigation */
+.nav-responsive {
+  flex-direction: column;
+}
+
+@media (min-width: 768px) {
+  .nav-responsive {
+    flex-direction: row;
+  }
+}
+
+/* Responsive tables */
+.table-responsive {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive table {
+  width: 100%;
+  min-width: 600px;
+}
+
+/* Responsive images */
+.img-responsive {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Responsive buttons */
+.btn-responsive {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+@media (min-width: 640px) {
+  .btn-responsive {
+    width: auto;
+    margin-bottom: 0;
+  }
+}
+
+/* Responsive sidebar */
+.sidebar-responsive {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 50;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.sidebar-responsive.open {
+  transform: translateX(0);
+}
+
+@media (min-width: 1024px) {
+  .sidebar-responsive {
+    width: 256px;
+    transform: translateX(0);
+    position: relative;
+    height: auto;
+  }
+  
+  .sidebar-responsive.open {
+    transform: translateX(0);
+  }
+}
+
+/* Responsive main content */
+.main-responsive {
+  margin-left: 0;
+  transition: margin-left 0.3s ease;
+}
+
+@media (min-width: 1024px) {
+  .main-responsive {
+    margin-left: 256px;
+  }
+}
+
+/* Responsive utility classes */
+.hide-xs { display: none; }
+.show-xs { display: block; }
+
+@media (min-width: 640px) {
+  .hide-sm { display: none; }
+  .show-sm { display: block; }
+  .hide-xs { display: block; }
+  .show-xs { display: none; }
+}
+
+@media (min-width: 768px) {
+  .hide-md { display: none; }
+  .show-md { display: block; }
+  .hide-sm { display: block; }
+  .show-sm { display: none; }
+}
+
+@media (min-width: 1024px) {
+  .hide-lg { display: none; }
+  .show-lg { display: block; }
+  .hide-md { display: block; }
+  .show-md { display: none; }
+}
+
+@media (min-width: 1280px) {
+  .hide-xl { display: none; }
+  .show-xl { display: block; }
+  .hide-lg { display: block; }
+  .show-lg { display: none; }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  .print-card {
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+  }
+}
+
+/* Dark mode responsive adjustments */
+@media (prefers-color-scheme: dark) {
+  .dark\:responsive-bg {
+    background-color: hsl(var(--background));
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .no-motion {
+    transform: none !important;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .high-contrast {
+    border-width: 2px !important;
+    font-weight: bold !important;
+  }
+}
+
+/* Responsive accessibility features */
+.sr-only-responsive {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@media (min-width: 768px) {
+  .sr-only-responsive.md {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+}

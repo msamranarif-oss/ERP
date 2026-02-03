@@ -1,0 +1,14 @@
+{
+  "name": "erp-api-tests",
+  "version": "1.0.0",
+  "description": "API Tests for ERP System",
+  "scripts": {
+    "test": "php artisan test",
+    "test-coverage": "php artisan test --coverage",
+    "test-feature": "php artisan test --testsuite=Feature",
+    "test-unit": "php artisan test --testsuite=Unit"
+  },
+  "devDependencies": {
+    "phpunit/phpunit": "^10.0"
+  }
+}
