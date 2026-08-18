@@ -3,20 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\BankReconciliation;
 use App\Models\BankAccount;
+use App\Models\BankReconciliation;
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class BankReconciliationController extends Controller
 {
-    public function __construct()
-    {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
-    }
-
     public function index(Request $request)
     {
         $query = BankReconciliation::with(['bankAccount.account', 'createdBy']);
@@ -24,7 +18,7 @@ class BankReconciliationController extends Controller
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
                 $q->whereHas('bankAccount.account', function ($sub) use ($request) {
-                    $sub->where('name', 'like', '%' . $request->search . '%');
+                    $sub->where('name', 'like', '%'.$request->search.'%');
                 });
             });
         }
@@ -38,11 +32,11 @@ class BankReconciliationController extends Controller
         }
 
         $reconciliations = $query->orderBy('created_at', 'desc')
-                                  ->paginate($request->per_page ?? 15);
+            ->paginate($request->per_page ?? 15);
 
         return response()->json([
             'success' => true,
-            'data' => $reconciliations
+            'data' => $reconciliations,
         ]);
     }
 
@@ -51,8 +45,10 @@ class BankReconciliationController extends Controller
         $validated = $request->validate([
             'bank_account_id' => 'required|exists:bank_accounts,id',
             'statement_date' => 'required|date',
-            'statement_balance' => 'required|numeric',
-            'book_balance' => 'required|numeric',
+            'statement_opening_balance' => 'required|numeric',
+            'statement_closing_balance' => 'required|numeric',
+            'system_balance' => 'required|numeric',
+            'difference' => 'nullable|numeric',
             'outstanding_checks' => 'nullable|array',
             'outstanding_checks.*.id' => 'required|exists:journal_entries,id',
             'deposits_in_transit' => 'nullable|array',
@@ -67,10 +63,10 @@ class BankReconciliationController extends Controller
         ]);
 
         $bankAccount = BankAccount::find($validated['bank_account_id']);
-        if ($bankAccount->tenant_id !== auth()->user()->tenant_id) {
+        if ($bankAccount->tenant_id !== Auth::user()->tenant_id) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid bank account.'
+                'message' => 'Invalid bank account.',
             ], 422);
         }
 
@@ -79,19 +75,18 @@ class BankReconciliationController extends Controller
             $reconciliation = BankReconciliation::create([
                 'bank_account_id' => $validated['bank_account_id'],
                 'statement_date' => $validated['statement_date'],
-                'statement_balance' => $validated['statement_balance'],
-                'book_balance' => $validated['book_balance'],
+                'statement_opening_balance' => $validated['statement_opening_balance'],
+                'statement_closing_balance' => $validated['statement_closing_balance'],
+                'system_balance' => $validated['system_balance'],
+                'difference' => $validated['difference'] ?? ($validated['statement_closing_balance'] - $validated['system_balance']),
                 'outstanding_checks' => $validated['outstanding_checks'] ?? [],
                 'deposits_in_transit' => $validated['deposits_in_transit'] ?? [],
                 'bank_charges' => $validated['bank_charges'] ?? [],
                 'interest_earned' => $validated['interest_earned'] ?? [],
-                'adjusted_book_balance' => $validated['book_balance'] + 
-                                          collect($validated['deposits_in_transit'])->sum('amount') - 
-                                          collect($validated['outstanding_checks'])->sum('amount'),
                 'notes' => $validated['notes'] ?? null,
                 'status' => 'pending',
-                'tenant_id' => auth()->user()->tenant_id,
-                'created_by' => auth()->id(),
+                'tenant_id' => Auth::user()->tenant_id,
+                'created_by' => Auth::id(),
             ]);
 
             DB::commit();
@@ -99,13 +94,14 @@ class BankReconciliationController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $reconciliation->load(['bankAccount.account', 'createdBy']),
-                'message' => 'Bank reconciliation created successfully.'
+                'message' => 'Bank reconciliation created successfully.',
             ], 201);
         } catch (\Exception $e) {
             DB::rollback();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create bank reconciliation: ' . $e->getMessage()
+                'message' => 'An internal error occurred. Please try again later.',
             ], 500);
         }
     }
@@ -114,7 +110,7 @@ class BankReconciliationController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => $bank_reconciliation->load(['bankAccount.account', 'createdBy', 'completedBy'])
+            'data' => $bank_reconciliation->load(['bankAccount.account', 'createdBy', 'completedBy']),
         ]);
     }
 
@@ -123,14 +119,16 @@ class BankReconciliationController extends Controller
         if ($bank_reconciliation->status !== 'pending') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot update bank reconciliation that is not in pending status.'
+                'message' => 'Cannot update bank reconciliation that is not in pending status.',
             ], 422);
         }
 
         $validated = $request->validate([
             'statement_date' => 'sometimes|required|date',
-            'statement_balance' => 'sometimes|required|numeric',
-            'book_balance' => 'sometimes|required|numeric',
+            'statement_opening_balance' => 'sometimes|required|numeric',
+            'statement_closing_balance' => 'sometimes|required|numeric',
+            'system_balance' => 'sometimes|required|numeric',
+            'difference' => 'sometimes|nullable|numeric',
             'outstanding_checks' => 'sometimes|nullable|array',
             'outstanding_checks.*.id' => 'sometimes|required|exists:journal_entries,id',
             'deposits_in_transit' => 'sometimes|nullable|array',
@@ -144,12 +142,18 @@ class BankReconciliationController extends Controller
             'notes' => 'sometimes|nullable|string|max:1000',
         ]);
 
+        if (isset($validated['difference'])) {
+            $validated['difference'] = $validated['difference'];
+        } elseif (isset($validated['statement_closing_balance'], $validated['system_balance'])) {
+            $validated['difference'] = $validated['statement_closing_balance'] - $validated['system_balance'];
+        }
+
         $bank_reconciliation->update($validated);
 
         return response()->json([
             'success' => true,
             'data' => $bank_reconciliation->load(['bankAccount.account', 'createdBy', 'completedBy']),
-            'message' => 'Bank reconciliation updated successfully.'
+            'message' => 'Bank reconciliation updated successfully.',
         ]);
     }
 
@@ -158,7 +162,7 @@ class BankReconciliationController extends Controller
         if ($bank_reconciliation->status !== 'pending') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete bank reconciliation that is not in pending status.'
+                'message' => 'Cannot delete bank reconciliation that is not in pending status.',
             ], 422);
         }
 
@@ -166,7 +170,7 @@ class BankReconciliationController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Bank reconciliation deleted successfully.'
+            'message' => 'Bank reconciliation deleted successfully.',
         ]);
     }
 
@@ -175,20 +179,20 @@ class BankReconciliationController extends Controller
         if ($bank_reconciliation->status !== 'pending') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot complete bank reconciliation that is not in pending status.'
+                'message' => 'Cannot complete bank reconciliation that is not in pending status.',
             ], 422);
         }
 
         $bank_reconciliation->update([
             'status' => 'completed',
             'completed_at' => now(),
-            'completed_by' => auth()->id(),
+            'completed_by' => Auth::id(),
         ]);
 
         return response()->json([
             'success' => true,
             'data' => $bank_reconciliation->load(['bankAccount.account', 'createdBy', 'completedBy']),
-            'message' => 'Bank reconciliation completed successfully.'
+            'message' => 'Bank reconciliation completed successfully.',
         ]);
     }
 }

@@ -3,48 +3,45 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\BankAccountResource;
 use App\Models\BankAccount;
-use App\Models\Account;
-use Illuminate\Http\Request;
+use App\Services\BankAccountService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class BankAccountController extends Controller
 {
-    public function __construct()
+    protected BankAccountService $bankAccountService;
+
+    public function __construct(BankAccountService $bankAccountService)
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->bankAccountService = $bankAccountService;
     }
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $query = BankAccount::with(['account']);
-
+        $filters = [];
         if ($request->filled('search')) {
-            $query->where(function ($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->search . '%')
-                  ->orWhere('account_number', 'like', '%' . $request->search . '%')
-                  ->orWhere('bank_name', 'like', '%' . $request->search . '%');
-            });
+            $filters['search'] = $request->search;
         }
-
         if ($request->filled('is_active')) {
-            $query->where('is_active', $request->is_active);
+            $filters['is_active'] = $request->is_active;
         }
 
-        $bankAccounts = $query->orderBy('name')
-                               ->paginate($request->per_page ?? 15);
+        $bankAccounts = $this->bankAccountService->getAll($filters, $request->per_page ?? 15);
 
-        return \App\Http\Resources\BankAccountResource::collection($bankAccounts);
+        return BankAccountResource::collection($bankAccounts);
     }
 
-    public function store(Request $request): \App\Http\Resources\BankAccountResource
+    public function store(Request $request): BankAccountResource
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'account_number' => 'required|string|max:255|unique:bank_accounts,account_number,NULL,id,tenant_id,' . auth()->user()->tenant_id,
+            'name' => 'sometimes|required_without:account_name|string|max:255',
+            'account_name' => 'sometimes|required_without:name|string|max:255',
+            'account_number' => 'required|string|max:255|unique:bank_accounts,account_number,NULL,id,tenant_id,'.Auth::user()->tenant_id,
             'bank_name' => 'required|string|max:255',
             'branch_name' => 'nullable|string|max:255',
             'routing_number' => 'nullable|string|max:255',
@@ -55,42 +52,35 @@ class BankAccountController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $account = Account::create([
-            'name' => $validated['name'],
-            'code' => 'BANK-' . strtoupper(substr(md5(uniqid()), 0, 6)),
-            'type' => 'asset',
-            'category' => 'current_asset',
-            'description' => 'Bank account for ' . $validated['bank_name'],
-            'opening_balance' => $validated['opening_balance'],
-            'is_active' => $validated['is_active'] ?? true,
-            'tenant_id' => auth()->user()->tenant_id,
-        ]);
+        if (isset($validated['name']) && ! isset($validated['account_name'])) {
+            $validated['account_name'] = $validated['name'];
+            unset($validated['name']);
+        }
 
-        $bankAccount = BankAccount::create([
-            ...$validated,
-            'account_id' => $account->id,
-            'tenant_id' => auth()->user()->tenant_id,
-        ]);
+        $bankAccount = $this->bankAccountService->createBankAccount($validated);
 
-        return new \App\Http\Resources\BankAccountResource($bankAccount->load(['account']));
+        return new \App\Http\Resources\BankAccountResource($bankAccount);
     }
 
-    public function show(BankAccount $bank_account): \App\Http\Resources\BankAccountResource
+    public function show(BankAccount $bank_account): BankAccountResource
     {
-        return new \App\Http\Resources\BankAccountResource($bank_account->load(['account']));
+        return new BankAccountResource($bank_account->load(['account']));
     }
 
-    public function update(Request $request, BankAccount $bank_account): \App\Http\Resources\BankAccountResource
+    public function update(Request $request, BankAccount $bank_account): BankAccountResource
     {
         $validated = $request->validate([
             'name' => [
                 'sometimes',
-                'required',
+                'required_without:account_name',
                 'string',
                 'max:255',
-                Rule::unique('bank_accounts')->ignore($bank_account->id)->where(function ($query) {
-                    return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
+            ],
+            'account_name' => [
+                'sometimes',
+                'required_without:name',
+                'string',
+                'max:255',
             ],
             'account_number' => [
                 'sometimes',
@@ -98,8 +88,8 @@ class BankAccountController extends Controller
                 'string',
                 'max:255',
                 Rule::unique('bank_accounts')->ignore($bank_account->id)->where(function ($query) {
-                    return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
+                    return $query->where('tenant_id', Auth::user()->tenant_id);
+                }),
             ],
             'bank_name' => 'sometimes|required|string|max:255',
             'branch_name' => 'sometimes|nullable|string|max:255',
@@ -111,50 +101,40 @@ class BankAccountController extends Controller
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $bankAccount = $bank_account;
-        
-        if (isset($validated['name']) || isset($validated['opening_balance']) || isset($validated['is_active'])) {
-            $bankAccount->account->update([
-                'name' => $validated['name'] ?? $bankAccount->account->name,
-                'opening_balance' => $validated['opening_balance'] ?? $bankAccount->account->opening_balance,
-                'is_active' => $validated['is_active'] ?? $bankAccount->account->is_active,
-            ]);
+        if (isset($validated['name']) && ! isset($validated['account_name'])) {
+            $validated['account_name'] = $validated['name'];
+            unset($validated['name']);
         }
 
-        $bankAccount->update(array_diff_key($validated, ['name', 'opening_balance', 'is_active']));
+        $bankAccount = $this->bankAccountService->updateBankAccount($bank_account->id, $validated);
 
-        return new \App\Http\Resources\BankAccountResource($bankAccount->load(['account']));
+        return new \App\Http\Resources\BankAccountResource($bankAccount);
     }
 
     public function destroy(BankAccount $bank_account): JsonResponse
     {
-        // Prevent deletion if bank account has transactions
-        if ($bank_account->account->journalEntries()->exists()) {
+        try {
+            $this->bankAccountService->deleteBankAccount($bank_account->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bank account deleted successfully.',
+            ]);
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete bank account that has transactions.',
+                'message' => $e->getMessage(),
             ], 422);
         }
-
-        $bank_account->account->delete();
-        $bank_account->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Bank account deleted successfully.',
-        ]);
     }
 
     public function transactions(BankAccount $bank_account)
     {
-        $transactions = $bank_account->account->journalEntries()
-                                           ->with(['lines.account', 'createdBy'])
-                                           ->orderBy('date', 'desc')
-                                           ->get();
+        $transactions = $this->bankAccountService->getTransactions($bank_account->id);
 
         return response()->json([
             'success' => true,
-            'data' => $transactions
+            'data' => $transactions,
         ]);
     }
 }

@@ -42,27 +42,11 @@ class BranchController extends Controller
 
     public function show(Branch $branch): \App\Http\Resources\BranchResource
     {
-        $this->authorizeForTenant($branch);
-        
-        $currentUser = request()->user();
-        // Only admins can view branches
-        if (!$currentUser->hasRole(['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized to view branches');
-        }
-
         return new \App\Http\Resources\BranchResource($branch);
     }
 
     public function update(Request $request, Branch $branch): \App\Http\Resources\BranchResource
     {
-        $this->authorizeForTenant($branch);
-        
-        $currentUser = request()->user();
-        // Only admins can update branches
-        if (!$currentUser->hasRole(['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized to update branches');
-        }
-
         $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'code' => 'sometimes|required|string|max:50|unique:branches,code,' . $branch->id . ',id,tenant_id,' . $request->user()->tenant_id,

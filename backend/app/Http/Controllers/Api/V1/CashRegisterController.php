@@ -14,9 +14,10 @@ class CashRegisterController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->authorizeResource(CashRegister::class, 'cash_register');
     }
+
+   
 
     public function index(Request $request): AnonymousResourceCollection
     {

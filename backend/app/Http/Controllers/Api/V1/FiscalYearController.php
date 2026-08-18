@@ -13,9 +13,9 @@ class FiscalYearController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->authorizeResource(FiscalYear::class, 'fiscal_year');
     }
+   
 
     public function index(Request $request): AnonymousResourceCollection
     {

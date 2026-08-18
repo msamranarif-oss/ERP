@@ -2,19 +2,20 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Models\Customer;
-use Illuminate\Http\Request;
+use App\Http\Requests\Sales\StoreCustomerRequest;
+use App\Http\Requests\Sales\UpdateCustomerRequest;
+use App\Http\Resources\CustomerResource;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Validation\Rule;
 
-class CustomerController extends Controller
+class CustomerController extends ApiController
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->authorizeResource(Customer::class, 'customer');
     }
 
     public function index(Request $request): AnonymousResourceCollection
@@ -37,110 +38,82 @@ class CustomerController extends Controller
         $customers = $query->orderBy('name')
                            ->paginate($request->per_page ?? 15);
 
-        return \App\Http\Resources\CustomerResource::collection($customers);
+        return CustomerResource::collection($customers);
     }
 
-    public function store(Request $request): \App\Http\Resources\CustomerResource
+    public function store(StoreCustomerRequest $request): CustomerResource
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'code' => 'nullable|string|max:50|unique:customers,code,NULL,id,tenant_id,' . auth()->user()->tenant_id,
-            'email' => 'nullable|email|max:255|unique:customers,email,NULL,id,tenant_id,' . auth()->user()->tenant_id,
-            'phone' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:500',
-            'city' => 'nullable|string|max:100',
-            'country' => 'nullable|string|max:100',
-            'tax_number' => 'nullable|string|max:50',
-            'credit_limit' => 'nullable|numeric|min:0',
-            'is_active' => 'boolean',
-            'notes' => 'nullable|string|max:1000',
-        ]);
-
         $customer = Customer::create([
-            ...$validated,
-            'tenant_id' => auth()->user()->tenant_id,
+            ...$request->validated(),
+            'tenant_id' => $request->user()->tenant_id,
         ]);
 
-        return new \App\Http\Resources\CustomerResource($customer);
+        return new CustomerResource($customer);
     }
 
-    public function show(Customer $customer): \App\Http\Resources\CustomerResource
+    public function show(Customer $customer): CustomerResource
     {
-        return new \App\Http\Resources\CustomerResource($customer);
+        return new CustomerResource($customer);
     }
 
-    public function update(Request $request, Customer $customer): \App\Http\Resources\CustomerResource
+    public function update(UpdateCustomerRequest $request, Customer $customer): CustomerResource
     {
-        $validated = $request->validate([
-            'name' => [
-                'sometimes',
-                'required',
-                'string',
-                'max:255',
-                Rule::unique('customers')->ignore($customer->id)->where(function ($query) {
-                    return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
-            ],
-            'code' => [
-                'sometimes',
-                'nullable',
-                'string',
-                'max:50',
-                Rule::unique('customers')->ignore($customer->id)->where(function ($query) {
-                    return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
-            ],
-            'email' => [
-                'sometimes',
-                'nullable',
-                'email',
-                'max:255',
-                Rule::unique('customers')->ignore($customer->id)->where(function ($query) {
-                    return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
-            ],
-            'phone' => 'sometimes|nullable|string|max:20',
-            'address' => 'sometimes|nullable|string|max:500',
-            'city' => 'sometimes|nullable|string|max:100',
-            'country' => 'sometimes|nullable|string|max:100',
-            'tax_number' => 'sometimes|nullable|string|max:50',
-            'credit_limit' => 'sometimes|nullable|numeric|min:0',
-            'is_active' => 'sometimes|boolean',
-            'notes' => 'sometimes|nullable|string|max:1000',
-        ]);
+        $customer->update($request->validated());
 
-        $customer->update($validated);
-
-        return new \App\Http\Resources\CustomerResource($customer);
+        return new CustomerResource($customer);
     }
 
     public function destroy(Customer $customer): JsonResponse
     {
         $customer->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Customer deleted successfully',
-        ]);
+        return $this->successResponse(null, 'Customer deleted successfully');
     }
 
-    public function transactions(Customer $customer)
+    public function transactions(Customer $customer): JsonResponse
     {
+        $this->authorize('view', $customer);
         $transactions = $customer->sales()->with(['items.product', 'payments'])->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $transactions
-        ]);
+        return $this->successResponse($transactions);
     }
 
-    public function creditHistory(Customer $customer)
+    public function creditHistory(Customer $customer): JsonResponse
     {
+        $this->authorize('view', $customer);
         $creditSales = $customer->creditSales()->with(['items.product', 'payments'])->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $creditSales
+        return $this->successResponse($creditSales);
+    }
+
+    public function statement(\Illuminate\Http\Request $request, Customer $customer): JsonResponse
+    {
+        $this->authorize('view', $customer);
+        $start = $request->get('start_date', now()->startOfMonth()->toDateString());
+        $end   = $request->get('end_date', now()->toDateString());
+
+        $sales = $customer->sales()
+            ->whereBetween('created_at', ["{$start} 00:00:00", "{$end} 23:59:59"])
+            ->get(['id','sale_number','total_amount','created_at'])
+            ->map(fn($s) => ['date' => $s->created_at->toDateString(),'reference' => $s->sale_number,'type' => 'sale','debit' => (float)$s->total_amount,'credit' => 0.0]);
+
+        $payments = \App\Models\SalePayment::whereHas('sale', fn($q) => $q->where('customer_id', $customer->id))
+            ->whereBetween('created_at', ["{$start} 00:00:00", "{$end} 23:59:59"])
+            ->get(['id','amount','created_at'])
+            ->map(fn($p) => ['date' => $p->created_at->toDateString(),'reference' => 'PMT-'.$p->id,'type' => 'payment','debit' => 0.0,'credit' => (float)$p->amount]);
+
+        $balance = 0.0;
+        $ledger  = $sales->merge($payments)->sortBy('date')->values()
+            ->map(function ($row) use (&$balance) {
+                $balance += $row['debit'] - $row['credit'];
+                return array_merge($row, ['balance' => $balance]);
+            });
+
+        return $this->successResponse([
+            'customer'        => $customer->only('id','name','email','phone'),
+            'period'          => ['start' => $start, 'end' => $end],
+            'transactions'    => $ledger,
+            'closing_balance' => $balance,
         ]);
     }
 }

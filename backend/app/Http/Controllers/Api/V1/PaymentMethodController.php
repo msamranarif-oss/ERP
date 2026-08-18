@@ -13,9 +13,9 @@ class PaymentMethodController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->authorizeResource(PaymentMethod::class, 'payment_method');
     }
+
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -71,7 +71,7 @@ class PaymentMethodController extends Controller
 
     public function show(PaymentMethod $payment_method): \App\Http\Resources\PaymentMethodResource
     {
-        return new \App\Http\Resources\PaymentMethodResource($method);
+        return new \App\Http\Resources\PaymentMethodResource($payment_method);
     }
 
     public function update(Request $request, PaymentMethod $payment_method): \App\Http\Resources\PaymentMethodResource
@@ -117,8 +117,8 @@ class PaymentMethodController extends Controller
 
     public function destroy(PaymentMethod $payment_method): JsonResponse
     {
-        // Prevent deletion if payment method is used in transactions
-        if ($payment_method->sales()->exists() || $payment_method->payments()->exists()) {
+        // Fix 8: Use salePayments() which is the actual HasMany relationship on PaymentMethod
+        if ($payment_method->salePayments()->exists()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot delete payment method that is used in transactions.',

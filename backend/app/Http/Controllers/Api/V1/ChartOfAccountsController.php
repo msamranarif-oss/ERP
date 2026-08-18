@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Account;
-use Illuminate\Http\Request;
+use App\Http\Resources\ChartOfAccountResource;
+use App\Models\ChartOfAccount;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
 
@@ -13,73 +14,80 @@ class ChartOfAccountsController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->authorizeResource(ChartOfAccount::class, 'chart_of_account');
     }
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $query = Account::with(['parent', 'children']);
+        $query = ChartOfAccount::with(['parent', 'children', 'accountType']);
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->search . '%')
-                  ->orWhere('code', 'like', '%' . $request->search . '%')
-                  ->orWhere('description', 'like', '%' . $request->search . '%');
+                $q->where('name', 'like', '%'.$request->search.'%')
+                    ->orWhere('code', 'like', '%'.$request->search.'%')
+                    ->orWhere('description', 'like', '%'.$request->search.'%');
             });
         }
 
         if ($request->filled('type')) {
-            $query->where('type', $request->type);
+            $query->whereHas('accountType', function ($q) use ($request) {
+                $q->where('category', $request->type);
+            });
         }
 
         if ($request->filled('category')) {
-            $query->where('category', $request->category);
+            $query->whereHas('accountType', function ($q) use ($request) {
+                $q->where('name', $request->category);
+            });
+        }
+
+        if ($request->filled('account_type_id')) {
+            $query->where('account_type_id', $request->account_type_id);
         }
 
         $accounts = $query->orderBy('code')
-                           ->paginate($request->per_page ?? 15);
+            ->paginate($request->per_page ?? 15);
 
-        return \App\Http\Resources\AccountResource::collection($accounts);
+        return ChartOfAccountResource::collection($accounts);
     }
 
     public function tree()
     {
-        $accounts = Account::with(['children'])->whereNull('parent_id')->orderBy('code')->get();
-        
+        $accounts = ChartOfAccount::with(['children'])->whereNull('parent_id')->orderBy('code')->get();
+
         return response()->json([
             'success' => true,
-            'data' => $accounts
+            'data' => $accounts,
         ]);
     }
 
-    public function store(Request $request): \App\Http\Resources\AccountResource
+    public function store(Request $request): ChartOfAccountResource
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'code' => 'required|string|max:20|unique:accounts,code,NULL,id,tenant_id,' . auth()->user()->tenant_id,
-            'type' => 'required|in:asset,liability,equity,revenue,expense',
-            'category' => 'required|in:current_asset,non_current_asset,current_liability,non_current_liability,capital,reserves,revenue,expenses',
+            'code' => 'required|string|max:20|unique:chart_of_accounts,code,NULL,id,tenant_id,'.auth()->user()->tenant_id,
+            'account_type_id' => 'required|exists:account_types,id',
             'description' => 'nullable|string|max:500',
-            'parent_id' => 'nullable|exists:accounts,id',
+            'parent_id' => 'nullable|exists:chart_of_accounts,id',
             'opening_balance' => 'nullable|numeric',
             'is_active' => 'boolean',
+            'allow_direct_posting' => 'boolean',
         ]);
 
-        $account = Account::create([
+        $account = ChartOfAccount::create([
             ...$validated,
             'tenant_id' => auth()->user()->tenant_id,
         ]);
 
-        return new \App\Http\Resources\AccountResource($account->load(['parent', 'children']));
+        return new ChartOfAccountResource($account->load(['parent', 'children', 'accountType']));
     }
 
-    public function show(Account $account): \App\Http\Resources\AccountResource
+    public function show(ChartOfAccount $chart_of_account): ChartOfAccountResource
     {
-        return new \App\Http\Resources\AccountResource($account->load(['parent', 'children']));
+        return new ChartOfAccountResource($chart_of_account->load(['parent', 'children', 'accountType']));
     }
 
-    public function update(Request $request, Account $account): \App\Http\Resources\AccountResource
+    public function update(Request $request, ChartOfAccount $chart_of_account): ChartOfAccountResource
     {
         $validated = $request->validate([
             'name' => [
@@ -87,43 +95,42 @@ class ChartOfAccountsController extends Controller
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('accounts')->ignore($account->id)->where(function ($query) {
+                Rule::unique('chart_of_accounts')->ignore($chart_of_account->id)->where(function ($query) {
                     return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
+                }),
             ],
             'code' => [
                 'sometimes',
                 'required',
                 'string',
                 'max:20',
-                Rule::unique('accounts')->ignore($account->id)->where(function ($query) {
+                Rule::unique('chart_of_accounts')->ignore($chart_of_account->id)->where(function ($query) {
                     return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
+                }),
             ],
-            'type' => 'sometimes|required|in:asset,liability,equity,revenue,expense',
-            'category' => 'sometimes|required|in:current_asset,non_current_asset,current_liability,non_current_liability,capital,reserves,revenue,expenses',
+            'account_type_id' => 'sometimes|required|exists:account_types,id',
             'description' => 'sometimes|nullable|string|max:500',
-            'parent_id' => 'sometimes|nullable|exists:accounts,id',
+            'parent_id' => 'sometimes|nullable|exists:chart_of_accounts,id',
             'opening_balance' => 'sometimes|nullable|numeric',
             'is_active' => 'sometimes|boolean',
+            'allow_direct_posting' => 'sometimes|boolean',
         ]);
 
-        $account->update($validated);
+        $chart_of_account->update($validated);
 
-        return new \App\Http\Resources\AccountResource($account->load(['parent', 'children']));
+        return new ChartOfAccountResource($chart_of_account->load(['parent', 'children', 'accountType']));
     }
 
-    public function destroy(Account $account): JsonResponse
+    public function destroy(ChartOfAccount $chart_of_account): JsonResponse
     {
-        // Prevent deletion if account has transactions
-        if ($account->journalEntries()->exists()) {
+        if ($chart_of_account->journalEntries()->exists()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot delete account that has journal entries.',
             ], 422);
         }
 
-        $account->delete();
+        $chart_of_account->delete();
 
         return response()->json([
             'success' => true,
