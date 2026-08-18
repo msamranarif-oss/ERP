@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERP API Documentation</title>
+    <script src="https://unpkg.com/redoc@latest/bundles/redoc.standalone.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="redoc-container"></div>
+    <script>
+        Redoc.init('./api-docs.json', {
+            theme: {
+                colors: {
+                    primary: {
+                        main: '#3B82F6'
+                    }
+                },
+                typography: {
+                    fontSize: '14px',
+                    lineHeight: '1.5em'
+                }
+            },
+            hideDownloadButton: false,
+            expandResponses: "200,201",
+            menuToggle: true
+        }, document.getElementById('redoc-container'));
+    </script>
+</body>
+</html>

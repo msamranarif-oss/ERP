@@ -2,11 +2,10 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\Models\Permission;
 use App\Models\User;
-use App\Models\Tenant;
+use Illuminate\Database\Seeder;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class RolesAndPermissionsSeeder extends Seeder
 {
@@ -18,107 +17,110 @@ class RolesAndPermissionsSeeder extends Seeder
         // Create permissions
         $permissions = [
             // User permissions
-            'view users',
-            'create users',
-            'edit users',
-            'delete users',
-            
+            'view-users',
+            'create-users',
+            'edit-users',
+            'delete-users',
+
             // Role permissions
-            'view roles',
-            'create roles',
-            'edit roles',
-            'delete roles',
-            
+            'view-roles',
+            'create-roles',
+            'edit-roles',
+            'delete-roles',
+
             // Inventory permissions
-            'view products',
-            'create products',
-            'edit products',
-            'delete products',
-            'view categories',
-            'create categories',
-            'edit categories',
-            'delete categories',
-            'view suppliers',
-            'create suppliers',
-            'edit suppliers',
-            'delete suppliers',
-            'view warehouses',
-            'create warehouses',
-            'edit warehouses',
-            'delete warehouses',
-            
+            'view-products',
+            'create-products',
+            'edit-products',
+            'delete-products',
+            'view-categories',
+            'create-categories',
+            'edit-categories',
+            'delete-categories',
+            'view-suppliers',
+            'create-suppliers',
+            'edit-suppliers',
+            'delete-suppliers',
+            'view-warehouses',
+            'create-warehouses',
+            'edit-warehouses',
+            'delete-warehouses',
+            'view-units',
+            'create-units',
+            'edit-units',
+            'delete-units',
+
             // POS permissions
-            'process sales',
-            'view sales',
-            'create customers',
-            'edit customers',
-            'delete customers',
-            'manage cash register',
-            
+            'process-sales',
+            'view-sales',
+            'create-customers',
+            'edit-customers',
+            'delete-customers',
+            'manage-cash-register',
+
             // Installment permissions
-            'view credit sales',
-            'create credit sales',
-            'process payments',
-            'view installments',
-            
+            'view-credit-sales',
+            'create-credit-sales',
+            'process-payments',
+            'view-installments',
+
             // Accounting permissions
-            'view accounts',
-            'create accounts',
-            'edit accounts',
-            'delete accounts',
-            'create journal entries',
-            'post journal entries',
-            'view reports',
+            'view-accounts',
+            'create-accounts',
+            'edit-accounts',
+            'delete-accounts',
+            'create-journal-entries',
+            'post-journal-entries',
+            'view-reports',
         ];
 
         foreach ($permissions as $permission) {
-            Permission::create(['name' => $permission]);
+            Permission::firstOrCreate(['name' => $permission]);
         }
 
-        // Create roles and assign permissions
-        $adminRole = Role::create(['name' => 'admin']);
-        $adminRole->givePermissionTo(Permission::all());
+        $adminRole = Role::firstOrCreate(['name' => 'admin']);
+        $adminRole->syncPermissions(Permission::all());
 
-        $managerRole = Role::create(['name' => 'manager']);
-        $managerRole->givePermissionTo([
-            'view users',
-            'view products',
-            'create products',
-            'edit products',
-            'view categories',
-            'create categories',
-            'edit categories',
-            'view suppliers',
-            'create suppliers',
-            'edit suppliers',
-            'process sales',
-            'view sales',
-            'create customers',
-            'edit customers',
-            'view credit sales',
-            'create credit sales',
-            'process payments',
-            'view accounts',
-            'view reports',
+        $managerRole = Role::firstOrCreate(['name' => 'manager']);
+        $managerRole->syncPermissions([
+            'view-users',
+            'view-products',
+            'create-products',
+            'edit-products',
+            'view-categories',
+            'create-categories',
+            'edit-categories',
+            'view-suppliers',
+            'create-suppliers',
+            'edit-suppliers',
+            'process-sales',
+            'view-sales',
+            'create-customers',
+            'edit-customers',
+            'view-credit-sales',
+            'create-credit-sales',
+            'process-payments',
+            'view-accounts',
+            'view-reports',
         ]);
 
-        $cashierRole = Role::create(['name' => 'cashier']);
-        $cashierRole->givePermissionTo([
-            'process sales',
-            'view sales',
-            'create customers',
-            'edit customers',
-            'manage cash register',
+        $cashierRole = Role::firstOrCreate(['name' => 'cashier']);
+        $cashierRole->syncPermissions([
+            'process-sales',
+            'view-sales',
+            'create-customers',
+            'edit-customers',
+            'manage-cash-register',
         ]);
 
-        $accountantRole = Role::create(['name' => 'accountant']);
-        $accountantRole->givePermissionTo([
-            'view accounts',
-            'create accounts',
-            'edit accounts',
-            'create journal entries',
-            'post journal entries',
-            'view reports',
+        $accountantRole = Role::firstOrCreate(['name' => 'accountant']);
+        $accountantRole->syncPermissions([
+            'view-accounts',
+            'create-accounts',
+            'edit-accounts',
+            'create-journal-entries',
+            'post-journal-entries',
+            'view-reports',
         ]);
     }
 }

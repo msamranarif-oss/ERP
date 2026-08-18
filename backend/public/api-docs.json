@@ -1,0 +1,559 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ERP System API Documentation",
+    "description": "Complete API documentation for the Enterprise Resource Planning System",
+    "version": "1.0.0",
+    "contact": {
+      "email": "support@erp-system.com"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "sanctum": []
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "User Login",
+        "description": "Authenticate user and generate API token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "example": "password123"
+                  }
+                },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Login successful"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer",
+                              "example": 1
+                            },
+                            "name": {
+                              "type": "string",
+                              "example": "John Doe"
+                            },
+                            "email": {
+                              "type": "string",
+                              "example": "user@example.com"
+                            },
+                            "tenant": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "example": 1
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "example": "Company Inc"
+                                },
+                                "slug": {
+                                  "type": "string",
+                                  "example": "company-inc"
+                                }
+                              }
+                            },
+                            "roles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "permissions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "token": {
+                          "type": "string",
+                          "example": "1234567890abcdef"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credit-sales": {
+      "get": {
+        "tags": ["Credit Sales"],
+        "summary": "Get Credit Sales List",
+        "description": "Retrieve paginated list of credit sales with optional filters",
+        "security": [
+          {
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search by credit sale number or customer name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by status (active, completed, cancelled, defaulted)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "description": "Filter by customer ID",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 15
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "example": 1
+                              },
+                              "credit_sale_number": {
+                                "type": "string",
+                                "example": "CS-2024-0001"
+                              },
+                              "customer": {
+                                "type": "object",
+                                "properties": {
+                                  "customer": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "example": "John Customer"
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "total_amount": {
+                                "type": "number",
+                                "format": "float",
+                                "example": 1000.00
+                              },
+                              "status": {
+                                "type": "string",
+                                "example": "active"
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        },
+                        "links": {
+                          "type": "object"
+                        },
+                        "meta": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Credit Sales"],
+        "summary": "Create Credit Sale",
+        "description": "Create a new credit sale with items and installments",
+        "security": [
+          {
+            "sanctum": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "customer_id": {
+                    "type": "integer",
+                    "example": 1
+                  },
+                  "down_payment": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 200.00
+                  },
+                  "loan_amount": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 800.00
+                  },
+                  "interest_rate": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 5.0
+                  },
+                  "number_of_installments": {
+                    "type": "integer",
+                    "example": 12
+                  },
+                  "installment_frequency": {
+                    "type": "string",
+                    "example": "monthly"
+                  },
+                  "first_installment_date": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2024-03-01"
+                  },
+                  "total_amount": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 1000.00
+                  },
+                  "discount_amount": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 0.00
+                  },
+                  "tax_amount": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 0.00
+                  },
+                  "shipping_cost": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 0.00
+                  },
+                  "notes": {
+                    "type": "string",
+                    "example": "Special terms apply"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "product_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "quantity": {
+                          "type": "number",
+                          "format": "float",
+                          "example": 2
+                        },
+                        "unit_price": {
+                          "type": "number",
+                          "format": "float",
+                          "example": 500.00
+                        },
+                        "discount_percent": {
+                          "type": "number",
+                          "format": "float",
+                          "example": 0.0
+                        },
+                        "tax_percent": {
+                          "type": "number",
+                          "format": "float",
+                          "example": 0.0
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "customer_id",
+                  "down_payment",
+                  "loan_amount",
+                  "interest_rate",
+                  "number_of_installments",
+                  "installment_frequency",
+                  "first_installment_date",
+                  "total_amount",
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Credit sale created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Credit sale created successfully."
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "credit_sale_number": {
+                          "type": "string",
+                          "example": "CS-2024-0001"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Operation successful"
+          },
+          "data": {
+            "type": "object"
+          }
+        }
+      },
+      "ValidationError": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "example": "Validation failed"
+          },
+          "errors": {
+            "type": "object"
+          }
+        }
+      },
+      "UnauthorizedError": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "example": "Unauthorized"
+          },
+          "error_code": {
+            "type": "string",
+            "example": "UNAUTHORIZED"
+          }
+        }
+      },
+      "NotFoundError": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "example": "Resource not found"
+          },
+          "error_code": {
+            "type": "string",
+            "example": "NOT_FOUND"
+          }
+        }
+      },
+      "ServerError": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "example": "Internal server error"
+          },
+          "error_code": {
+            "type": "string",
+            "example": "SERVER_ERROR"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "sanctum": {
+        "type": "apiKey",
+        "name": "Authorization",
+        "in": "header",
+        "description": "Enter token in format (Bearer <token>)"
+      }
+    }
+  }
+}

@@ -26,6 +26,8 @@ class ProductApiTest extends TestCase
     {
         parent::setUp();
         
+        $this->seed(\Database\Seeders\RolesAndPermissionsSeeder::class);
+        
         // Create tenant and user for testing
         $this->tenant = Tenant::factory()->create(['status' => true]);
         $this->branch = Branch::factory()->create(['tenant_id' => $this->tenant->id]);
@@ -58,28 +60,32 @@ class ProductApiTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonStructure([
+                'success',
+                'message',
                 'data' => [
-                    '*' => [
-                        'id',
-                        'name',
-                        'sku',
-                        'selling_price',
-                        'is_active',
-                        'tenant_id',
-                        'category' => [
+                    'data' => [
+                        '*' => [
                             'id',
-                            'name'
+                            'name',
+                            'sku',
+                            'selling_price',
+                            'is_active',
+                            'tenant_id',
+                            'category' => [
+                                'id',
+                                'name'
+                            ]
                         ]
+                    ],
+                    'meta' => [
+                        'current_page',
+                        'last_page',
+                        'per_page',
+                        'total'
                     ]
-                ],
-                'meta' => [
-                    'current_page',
-                    'last_page',
-                    'per_page',
-                    'total'
                 ]
             ])
-            ->assertJsonCount(5, 'data');
+            ->assertJsonCount(5, 'data.data');
     }
 
     /** @test */
@@ -113,6 +119,7 @@ class ProductApiTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonStructure([
+                'success',
                 'data' => [
                     'id',
                     'name',
@@ -128,6 +135,7 @@ class ProductApiTest extends TestCase
                 ]
             ])
             ->assertJson([
+                'success' => true,
                 'data' => [
                     'name' => 'Test Product',
                     'sku' => 'TEST001',
@@ -191,6 +199,7 @@ class ProductApiTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonStructure([
+                'success',
                 'data' => [
                     'id',
                     'name',
@@ -202,13 +211,14 @@ class ProductApiTest extends TestCase
                         'id',
                         'name'
                     ],
-                    'baseUnit' => [
+                    'base_unit' => [
                         'id',
                         'name'
                     ]
                 ]
             ])
             ->assertJson([
+                'success' => true,
                 'data' => [
                     'id' => $product->id,
                     'name' => $product->name
@@ -232,6 +242,7 @@ class ProductApiTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJson([
+                'success' => true,
                 'data' => [
                     'name' => 'Updated Product Name',
                     'selling_price' => 200.00,
@@ -242,7 +253,8 @@ class ProductApiTest extends TestCase
         $this->assertDatabaseHas('products', [
             'id' => $product->id,
             'name' => 'Updated Product Name',
-            'selling_price' => 200.00
+            'selling_price' => 200.00,
+            'tenant_id' => $this->user->tenant_id,
         ]);
     }
 
@@ -260,7 +272,7 @@ class ProductApiTest extends TestCase
                 'message' => 'Product deleted successfully'
             ]);
 
-        $this->assertDatabaseMissing('products', [
+        $this->assertSoftDeleted('products', [
             'id' => $product->id
         ]);
     }
@@ -268,8 +280,6 @@ class ProductApiTest extends TestCase
     /** @test */
     public function products_are_scoped_to_tenant()
     {
-        Sanctum::actingAs($this->user);
-        
         // Create another tenant with products
         $otherTenant = Tenant::factory()->create(['status' => true]);
         $otherCategory = Category::factory()->create(['tenant_id' => $otherTenant->id]);
@@ -280,13 +290,14 @@ class ProductApiTest extends TestCase
             'base_unit_id' => $otherUnit->id
         ]);
 
+        Sanctum::actingAs($this->user);
         $response = $this->getJson('/api/v1/products');
 
         $response->assertStatus(200)
-            ->assertJsonCount(5, 'data'); // Should only see original tenant's products
+            ->assertJsonCount(5, 'data.data'); // Should only see original tenant's products
 
         // Verify we don't see other tenant's products
-        $productIds = collect($response->json('data'))->pluck('id');
+        $productIds = collect($response->json('data.data'))->pluck('id');
         $otherProductIds = $otherProducts->pluck('id');
         
         foreach ($otherProductIds as $id) {
@@ -297,7 +308,6 @@ class ProductApiTest extends TestCase
     /** @test */
     public function cannot_access_other_tenant_products()
     {
-        Sanctum::actingAs($this->user);
         $otherTenant = Tenant::factory()->create(['status' => true]);
         $otherCategory = Category::factory()->create(['tenant_id' => $otherTenant->id]);
         $otherUnit = \App\Models\Unit::factory()->create(['tenant_id' => $otherTenant->id]);
@@ -307,6 +317,7 @@ class ProductApiTest extends TestCase
             'base_unit_id' => $otherUnit->id
         ]);
 
+        Sanctum::actingAs($this->user);
         $response = $this->getJson("/api/v1/products/{$otherProduct->id}");
 
         $response->assertStatus(404);
@@ -319,8 +330,11 @@ class ProductApiTest extends TestCase
         $product = $this->products->first();
 
         // Create stock levels for the product
+        $warehouse = \App\Models\Warehouse::factory()->create(['tenant_id' => $this->tenant->id]);
         \App\Models\StockLevel::factory()->create([
+            'tenant_id' => $this->tenant->id,
             'product_id' => $product->id,
+            'warehouse_id' => $warehouse->id,
             'quantity' => 100
         ]);
 

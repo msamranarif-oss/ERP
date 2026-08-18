@@ -107,5 +107,61 @@ class MasterDataSeeder extends Seeder
         foreach ($accountTypes as $typeData) {
             AccountType::create($typeData);
         }
+
+        // Create sample products
+        $categories = Category::where('tenant_id', $tenantId)->get();
+        $units = Unit::where('tenant_id', $tenantId)->get();
+        
+        if (!$categories->isEmpty() && !$units->isEmpty()) {
+            $sampleProducts = [
+                [
+                    'name' => 'Smartphone XYZ',
+                    'sku' => 'PHONE-XYZ-001',
+                    'barcode' => '1234567890123',
+                    'description' => 'Latest smartphone model with advanced features',
+                    'cost_price' => 300.00,
+                    'selling_price' => 500.00,
+                    'reorder_level' => 10,
+                    'is_active' => true,
+                    'is_sellable' => true,
+                    'track_inventory' => true,
+                    'category_id' => $categories->first()->id,
+                    'base_unit_id' => $units->first()->id,
+                ],
+                [
+                    'name' => 'Laptop ABC',
+                    'sku' => 'LAPTOP-ABC-001',
+                    'barcode' => '1234567890124',
+                    'description' => 'High-performance laptop for professionals',
+                    'cost_price' => 800.00,
+                    'selling_price' => 1200.00,
+                    'reorder_level' => 5,
+                    'is_active' => true,
+                    'is_sellable' => true,
+                    'track_inventory' => true,
+                    'category_id' => $categories->first()->id,
+                    'base_unit_id' => $units->first()->id,
+                ],
+                [
+                    'name' => 'Wireless Headphones',
+                    'sku' => 'HEADPHONES-001',
+                    'barcode' => '1234567890125',
+                    'description' => 'Noise-cancelling wireless headphones',
+                    'cost_price' => 50.00,
+                    'selling_price' => 100.00,
+                    'reorder_level' => 20,
+                    'is_active' => true,
+                    'is_sellable' => true,
+                    'track_inventory' => true,
+                    'category_id' => $categories->first()->id,
+                    'base_unit_id' => $units->first()->id,
+                ],
+            ];
+
+            foreach ($sampleProducts as $productData) {
+                $productData['tenant_id'] = $tenantId;
+                \App\Models\Product::create($productData);
+            }
+        }
     }
 }
