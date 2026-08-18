@@ -5,17 +5,33 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\SalePayment;
 use App\Models\Product;
 use App\Models\StockLevel;
 use App\Models\CreditSale;
+use App\Models\Installment;
+use App\Models\Payment;
+use App\Models\PurchaseBill;
 use App\Models\JournalEntry;
+use App\Models\JournalEntryLine;
+use App\Services\ReportService;
+use App\Services\ExportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class ReportController extends Controller
 {
+    protected ReportService $reportService;
+    protected ExportService $exportService;
+
+    public function __construct(ReportService $reportService, ExportService $exportService)
+    {
+        $this->reportService = $reportService;
+        $this->exportService = $exportService;
+    }
     private function getDateRange(Request $request)
     {
         $startDate = $request->get('start_date', Carbon::now()->startOfMonth()->toDateString());
@@ -32,18 +48,7 @@ class ReportController extends Controller
         $tenantId = $request->user()->tenant_id;
         [$startDate, $endDate] = $this->getDateRange($request);
 
-        $sales = Sale::where('tenant_id', $tenantId)
-            ->whereBetween('sale_date', [$startDate, $endDate])
-            ->selectRaw('
-                COUNT(*) as total_count,
-                SUM(total) as total_revenue,
-                SUM(discount_amount) as total_discount,
-                SUM(tax_amount) as total_tax,
-                SUM(shipping_amount) as total_shipping,
-                SUM(paid_amount) as total_paid,
-                SUM(balance_due) as total_due
-            ')
-            ->first();
+        $sales = $this->reportService->getSalesSummary($tenantId, $startDate, $endDate);
 
         return response()->json([
             'success' => true,
@@ -148,6 +153,20 @@ class ReportController extends Controller
         ]);
     }
 
+    public function salesByPaymentMethod(Request $request): JsonResponse
+    {
+        $tenantId = $request->user()->tenant_id;
+        [$startDate, $endDate] = $this->getDateRange($request);
+        $registerSessionId = $request->get('register_session_id');
+
+        $data = $this->reportService->getSalesByPaymentMethod($tenantId, $startDate, $endDate, $registerSessionId);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
+    }
+
     // ==========================================
     // Inventory Reports
     // ==========================================
@@ -156,11 +175,14 @@ class ReportController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
         
-        $query = Product::where('tenant_id', $tenantId)
+        $query = Product::where('products.tenant_id', $tenantId)
             ->with(['category']);
             
         if ($request->has('low_stock')) {
-            $query->whereRaw('available_stock <= alert_quantity');
+            $query->leftJoin('stock_levels', 'products.id', '=', 'stock_levels.product_id')
+                ->select('products.*')
+                ->groupBy('products.id')
+                ->havingRaw('SUM(stock_levels.quantity - stock_levels.reserved_quantity) <= products.reorder_level');
         }
 
         $products = $query->paginate($request->get('per_page', 50));
@@ -173,10 +195,14 @@ class ReportController extends Controller
 
     public function stockMovements(Request $request): JsonResponse
     {
-        // Placeholder until StockMovement model is created
+        $tenantId = $request->user()->tenant_id;
+        $filters = $request->only(['start_date', 'end_date', 'product_id', 'warehouse_id', 'per_page']);
+
+        $movements = $this->reportService->getStockMovements($tenantId, $filters);
+
         return response()->json([
             'success' => true,
-            'data' => []
+            'data' => $movements
         ]);
     }
 
@@ -184,8 +210,12 @@ class ReportController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
         
-        $products = Product::where('tenant_id', $tenantId)
-            ->whereRaw('available_stock <= alert_quantity')
+        $products = Product::where('products.tenant_id', $tenantId)
+            ->leftJoin('stock_levels', 'products.id', '=', 'stock_levels.product_id')
+            ->select('products.*')
+            ->selectRaw('SUM(stock_levels.quantity - stock_levels.reserved_quantity) as available_stock')
+            ->groupBy('products.id')
+            ->havingRaw('SUM(stock_levels.quantity - stock_levels.reserved_quantity) <= products.reorder_level')
             ->with('category')
             ->get();
 
@@ -199,13 +229,16 @@ class ReportController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
         
-        $valuation = Product::where('tenant_id', $tenantId)
+        $valuation = DB::table('products')
+            ->leftJoin('stock_levels', 'products.id', '=', 'stock_levels.product_id')
+            ->where('products.tenant_id', $tenantId)
+            ->whereNull('products.deleted_at')
             ->select(
-                DB::raw('COUNT(*) as total_products'),
-                DB::raw('SUM(available_stock) as total_items'),
-                DB::raw('SUM(available_stock * purchase_price) as total_cost_value'),
-                DB::raw('SUM(available_stock * selling_price) as total_sales_value'),
-                DB::raw('SUM(available_stock * (selling_price - purchase_price)) as potential_profit')
+                DB::raw('COUNT(DISTINCT products.id) as total_products'),
+                DB::raw('SUM(stock_levels.quantity) as total_items'),
+                DB::raw('SUM(stock_levels.quantity * products.cost_price) as total_cost_value'),
+                DB::raw('SUM(stock_levels.quantity * products.selling_price) as total_sales_value'),
+                DB::raw('SUM(stock_levels.quantity * (products.selling_price - products.cost_price)) as potential_profit')
             )
             ->first();
 
@@ -221,27 +254,108 @@ class ReportController extends Controller
 
     public function trialBalance(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending JournalEntryLine model implementation']);
+        $tenantId = $request->user()->tenant_id;
+        [$startDate, $endDate] = $this->getDateRange($request);
+
+        $data = $this->reportService->getTrialBalance($tenantId, $startDate, $endDate);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
     }
 
     public function profitLoss(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending JournalEntryLine model implementation']);
+        $tenantId = $request->user()->tenant_id;
+        [$startDate, $endDate] = $this->getDateRange($request);
+
+        $data = $this->reportService->getProfitLoss($tenantId, $startDate, $endDate);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
     }
 
     public function balanceSheet(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending JournalEntryLine model implementation']);
-    }
+        $tenantId = $request->user()->tenant_id;
+        $date = $request->get('date', now()->toDateString());
 
-    public function cashFlow(Request $request): JsonResponse
-    {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending implementation']);
+        $data = $this->reportService->getBalanceSheet($tenantId, $date);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
     }
 
     public function generalLedger(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending JournalEntryLine model implementation']);
+        $tenantId = $request->user()->tenant_id;
+        $accountId = $request->get('account_id');
+        $dateFrom  = $request->get('start_date', Carbon::now()->startOfMonth()->toDateString());
+        $dateTo    = $request->get('end_date',   Carbon::now()->toDateString());
+
+        $query = JournalEntryLine::with(['account', 'journalEntry'])
+            ->whereHas('journalEntry', fn ($q) => $q
+                ->where('tenant_id', $tenantId)
+                ->where('status', 'posted')
+                ->whereBetween('entry_date', [$dateFrom, $dateTo]))
+            ->when($accountId, fn ($q, $id) => $q->where('account_id', $id))
+            ->orderBy('created_at');
+
+        $lines = $query->paginate($request->get('per_page', 50));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $lines,
+        ]);
+    }
+
+    public function cashFlow(Request $request): JsonResponse
+    {
+        $tenantId = $request->user()->tenant_id;
+        $dateFrom = $request->get('start_date', Carbon::now()->startOfMonth()->toDateString());
+        $dateTo   = $request->get('end_date',   Carbon::now()->toDateString());
+
+        // Operating inflows — payments received on sales
+        $inflows = SalePayment::whereHas('sale', fn ($q) => $q->where('tenant_id', $tenantId))
+            ->whereBetween('created_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])
+            ->sum('amount');
+
+        // Operating outflows — amounts paid on purchase bills
+        $outflows = PurchaseBill::where('tenant_id', $tenantId)
+            ->whereNotNull('paid_at')
+            ->whereBetween('paid_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])
+            ->sum('amount_paid');
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'period'         => ['from' => $dateFrom, 'to' => $dateTo],
+                'total_inflows'  => (float) $inflows,
+                'total_outflows' => (float) $outflows,
+                'net_cash_flow'  => (float) ($inflows - $outflows),
+            ],
+        ]);
+    }
+
+    public function export(Request $request)
+    {
+        $type = $request->get('report_type');
+        $tenantId = $request->user()->tenant_id;
+        [$startDate, $endDate] = $this->getDateRange($request);
+
+        if ($type === 'sales_summary') {
+            $data = $this->reportService->getSalesSummary($tenantId, $startDate, $endDate);
+            return $this->exportService->exportToCsv(collect([$data]), [
+                'Total Count', 'Total Revenue', 'Discount', 'Tax', 'Shipping', 'Paid', 'Due'
+            ], 'sales_summary.csv');
+        }
+
+        return response()->json(['success' => false, 'message' => 'Invalid report type'], 400);
     }
 
     // ==========================================
@@ -251,47 +365,210 @@ class ReportController extends Controller
     public function installmentSummary(Request $request): JsonResponse
     {
         $tenantId = $request->user()->tenant_id;
-        
+
+        // Use actual column names: loan_amount, down_payment
         $summary = CreditSale::where('tenant_id', $tenantId)
             ->selectRaw('
-                COUNT(*) as total_agreements,
-                SUM(financed_amount) as total_financed,
-                SUM(total_paid) as total_collected,
-                SUM(total_balance) as total_outstanding
+                COUNT(*)                    AS total_agreements,
+                SUM(loan_amount)            AS total_loan_amount,
+                SUM(down_payment)           AS total_down_payment,
+                SUM(loan_amount + down_payment) AS total_financed
             ')
+            ->withSum('installments as total_collected', 'paid_amount')
+            ->withCount(['installments as overdue_count' =>
+                fn ($q) => $q->where('status', 'overdue')
+            ])
             ->first();
+
+        // Compute outstanding from installments table to avoid virtual-column issues
+        $outstanding = Installment::whereHas('creditSale', fn ($q) => $q->where('tenant_id', $tenantId))
+            ->where('status', '!=', 'paid')
+            ->selectRaw('SUM(due_amount - paid_amount) as balance')
+            ->value('balance') ?? 0;
 
         return response()->json([
             'success' => true,
-            'data' => $summary
+            'data'    => array_merge($summary->toArray(), [
+                'total_outstanding' => (float) $outstanding,
+            ]),
         ]);
     }
 
     public function overdueInstallments(Request $request): JsonResponse
     {
-        // Fallback to CreditSale level check since Schedule model is missing
         $tenantId = $request->user()->tenant_id;
         
-        $overdue = CreditSale::where('tenant_id', $tenantId)
-            ->where('status', 'active') // Assuming active means potentially overdue
-            // Real logic needs InstallmentSchedule table
-            ->limit(20)
-            ->get();
+        $overdue = $this->reportService->getOverdueInstallments($tenantId);
 
         return response()->json([
             'success' => true,
-            'data' => $overdue,
-            'message' => 'Pending InstallmentSchedule model for accurate overdue checking'
+            'data' => $overdue
         ]);
     }
 
     public function collections(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending Payment model implementation']);
+        $tenantId = $request->user()->tenant_id;
+        
+        $startDate = $request->input('start_date', now()->subDays(30)->toDateString());
+        $endDate = $request->input('end_date', now()->toDateString());
+        
+        $result = $this->reportService->getCollections($tenantId, $startDate, $endDate);
+
+        return response()->json([
+            'success' => true,
+            'data' => $result['collections'],
+            'summary' => $result['summary']
+        ]);
     }
 
     public function installmentAging(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => [], 'message' => 'Pending InstallmentSchedule model implementation']);
+        $tenantId = $request->user()->tenant_id;
+        $today    = Carbon::today()->toDateString();
+
+        $buckets = [
+            'current'   => [0,  30],
+            'days_31_60' => [31, 60],
+            'days_61_90' => [61, 90],
+            'days_90_plus' => [91, null],
+        ];
+
+        $result = [];
+        foreach ($buckets as $label => [$min, $max]) {
+            $query = Installment::whereHas('creditSale', fn ($q) => $q->where('tenant_id', $tenantId))
+                ->where('status', '!=', 'paid')
+                ->where('due_date', '<', $today)
+                ->whereRaw('DATEDIFF(?, due_date) >= ?', [$today, $min]);
+
+            if ($max !== null) {
+                $query->whereRaw('DATEDIFF(?, due_date) <= ?', [$today, $max]);
+            }
+
+            $result[$label] = [
+                'count'       => $query->count(),
+                'balance_due' => (float) $query->sum(DB::raw('due_amount - paid_amount')),
+            ];
+        }
+
+        return response()->json(['success' => true, 'data' => $result]);
+    }
+
+    // ── AR Aging ────────────────────────────────────────────────────────
+
+    public function arAging(Request $request): JsonResponse
+    {
+        $today    = now()->toDateString();
+        $tenantId = auth()->user()->tenant_id;
+
+        $buckets = [
+            'current' => [0, 30],
+            '31_60'   => [31, 60],
+            '61_90'   => [61, 90],
+            '90_plus' => [91, null],
+        ];
+
+        $result = [];
+        foreach ($buckets as $label => [$min, $max]) {
+            $query = \App\Models\Installment::where('tenant_id', $tenantId)
+                ->where('status', '!=', 'paid')
+                ->whereRaw('DATEDIFF(?, due_date) >= ?', [$today, $min]);
+            if ($max) {
+                $query->whereRaw('DATEDIFF(?, due_date) <= ?', [$today, $max]);
+            }
+            $result[$label] = [
+                'count'       => $query->count(),
+                'balance_due' => (float) $query->sum(DB::raw('due_amount - paid_amount')),
+            ];
+        }
+
+        return response()->json(['success' => true, 'data' => $result]);
+    }
+
+    // ── AP Aging ────────────────────────────────────────────────────────
+
+    public function apAging(Request $request): JsonResponse
+    {
+        $today    = now()->toDateString();
+        $tenantId = auth()->user()->tenant_id;
+
+        $buckets = [
+            'current' => [0, 30],
+            '31_60'   => [31, 60],
+            '61_90'   => [61, 90],
+            '90_plus' => [91, null],
+        ];
+
+        $result = [];
+        foreach ($buckets as $label => [$min, $max]) {
+            $query = \App\Models\PurchaseBill::where('tenant_id', $tenantId)
+                ->where('payment_status', '!=', 'paid')
+                ->whereNotNull('due_date')
+                ->whereRaw('DATEDIFF(?, due_date) >= ?', [$today, $min]);
+            if ($max) {
+                $query->whereRaw('DATEDIFF(?, due_date) <= ?', [$today, $max]);
+            }
+            $result[$label] = [
+                'count'       => $query->count(),
+                'balance_due' => (float) $query->sum(DB::raw('total_amount - paid_amount')),
+            ];
+        }
+
+        return response()->json(['success' => true, 'data' => $result]);
+    }
+
+    // ── Supplier Ledger ─────────────────────────────────────────────────
+
+    public function supplierLedger(Request $request, int $supplierId): JsonResponse
+    {
+        $tenantId = auth()->user()->tenant_id;
+        [$startDate, $endDate] = $this->getDateRange($request);
+
+        // Purchase bills (liability increases)
+        $bills = \App\Models\PurchaseBill::where('tenant_id', $tenantId)
+            ->where('supplier_id', $supplierId)
+            ->whereBetween('bill_date', [$startDate, $endDate])
+            ->get()
+            ->map(fn($b) => [
+                'date'        => $b->bill_date,
+                'type'        => 'purchase_bill',
+                'reference'   => $b->bill_number,
+                'debit'       => 0,
+                'credit'      => (float) $b->total_amount,
+                'description' => 'Purchase Bill',
+            ]);
+
+        // Payments (liability decreases)
+        $payments = \App\Models\Payment::where('tenant_id', $tenantId)
+            ->where('payee_type', 'supplier')
+            ->where('payee_id', $supplierId)
+            ->whereBetween('payment_date', [$startDate, $endDate])
+            ->get()
+            ->map(fn($p) => [
+                'date'        => $p->payment_date,
+                'type'        => 'payment',
+                'reference'   => $p->reference ?? ('PAY-' . $p->id),
+                'debit'       => (float) $p->amount,
+                'credit'      => 0,
+                'description' => 'Payment',
+            ]);
+
+        $transactions = $bills->merge($payments)->sortBy('date')->values();
+
+        $runningBalance = 0;
+        $ledger = $transactions->map(function ($row) use (&$runningBalance) {
+            $runningBalance += $row['credit'] - $row['debit'];
+            return array_merge($row, ['balance' => $runningBalance]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'supplier_id' => $supplierId,
+                'period'      => ['from' => $startDate, 'to' => $endDate],
+                'entries'     => $ledger,
+                'closing_balance' => $runningBalance,
+            ],
+        ]);
     }
 }

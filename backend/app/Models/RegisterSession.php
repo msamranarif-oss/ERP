@@ -2,18 +2,23 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\LogsActivityForTenant;
 
 class RegisterSession extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToTenant, SoftDeletes, LogsActivityForTenant;
 
     protected $fillable = [
+        'tenant_id',
         'cash_register_id',
         'user_id',
+        'closed_by',
         'opening_balance',
         'cash_sales',
         'card_sales',
@@ -54,6 +59,28 @@ class RegisterSession extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** Alias for the user who opened this session. */
+    public function openedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** The user who closed this session. */
+    public function closedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'closed_by');
+    }
+
+    public function cashTransactions()
+    {
+        return $this->hasMany(CashTransaction::class);
+    }
+
+    public function getExpectedCashAttribute(): float
+    {
+        return (float) $this->calculateExpectedBalance();
     }
 
     public function sales(): HasMany

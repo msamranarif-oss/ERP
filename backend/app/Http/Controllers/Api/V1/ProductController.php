@@ -2,154 +2,122 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Models\StockLevel;
+use App\Services\ProductService;
+use App\Http\Requests\Inventory\StoreProductRequest;
+use App\Http\Requests\Inventory\UpdateProductRequest;
+use App\Http\Resources\ProductResource;
+use App\Http\Resources\ProductVariantResource;
+use App\Http\Resources\StockLevelResource;
+use App\Exceptions\InventoryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 
-class ProductController extends Controller
+class ProductController extends ApiController
 {
-    public function index(Request $request): AnonymousResourceCollection
-    {
-        $products = Product::with(['category', 'baseUnit', 'stockLevels'])
-            ->where('tenant_id', $request->user()->tenant_id)
-            ->orderBy('name')
-            ->paginate($request->per_page ?? 15);
+    protected ProductService $productService;
 
-        return \App\Http\Resources\ProductResource::collection($products);
+    public function __construct(ProductService $productService)
+    {
+        $this->productService = $productService;
+        $this->authorizeResource(Product::class, 'product');
     }
 
-    public function store(Request $request): \App\Http\Resources\ProductResource
+    public function index(Request $request): JsonResponse
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'sku' => 'nullable|string|max:255|unique:products,sku,NULL,id,tenant_id,' . $request->user()->tenant_id,
-            'barcode' => 'nullable|string|max:255|unique:products,barcode,NULL,id,tenant_id,' . $request->user()->tenant_id,
-            'category_id' => 'nullable|exists:categories,id',
-            'base_unit_id' => 'nullable|exists:units,id',
-            'description' => 'nullable|string',
-            'image' => 'nullable|image|max:2048',
-            'cost_price' => 'nullable|numeric|min:0',
-            'selling_price' => 'nullable|numeric|min:0',
-            'min_price' => 'nullable|numeric|min:0',
-            'reorder_level' => 'nullable|integer|min:0',
-            'reorder_quantity' => 'nullable|integer|min:0',
-            'is_active' => 'boolean',
-            'is_sellable' => 'boolean',
-            'is_purchasable' => 'boolean',
-            'track_inventory' => 'boolean',
-            'has_variants' => 'boolean',
-            'allow_negative_stock' => 'boolean',
-            'tax_type' => 'nullable|in:inclusive,exclusive,exempt',
-            'tax_rate' => 'nullable|numeric|min:0|max:100',
-            'attributes' => 'nullable|array',
-        ]);
+        try {
+            $products = Product::with(['category', 'baseUnit', 'stockLevels'])
+                ->when($request->search, fn ($q, $s) =>
+                    $q->where(fn ($inner) =>
+                        $inner->where('name', 'like', "%$s%")
+                              ->orWhere('sku', 'like', "%$s%")
+                              ->orWhere('barcode', 'like', "%$s%")
+                    ))
+                ->when($request->category_id,  fn ($q, $id)   => $q->where('category_id', $id))
+                ->when($request->brand_id,  fn ($q, $id)   => $q->where('brand_id', $id))
+                ->when($request->has('is_active'), fn ($q)     => $q->where('is_active', $request->boolean('is_active')))
+                ->when($request->product_type, fn ($q, $type) => $q->where('product_type', $type))
+                ->when($request->has('low_stock'), function ($q) {
+                    $q->whereColumn('reorder_level', '>', DB::raw('(SELECT COALESCE(SUM(quantity), 0) FROM stock_levels WHERE stock_levels.product_id = products.id)'));
+                })
+                ->orderBy($request->get('sort_by', 'name'), $request->get('sort_dir', 'asc'))
+                ->paginate($request->get('per_page', 15));
 
-        $data = $request->all();
-        $data['tenant_id'] = $request->user()->tenant_id;
-
-        if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('products', 'public');
-            $data['image'] = $path;
+            return $this->successResponse(ProductResource::collection($products)->response()->getData(true));
+        } catch (\Exception $e) {
+            return $this->errorResponse('An error occurred while fetching products.', 500);
         }
-
-        $product = Product::create($data);
-
-        return new \App\Http\Resources\ProductResource($product->load('category', 'baseUnit', 'stockLevels'));
     }
 
-    public function show(Product $product): \App\Http\Resources\ProductResource
+    public function store(StoreProductRequest $request): JsonResponse
     {
-        return new \App\Http\Resources\ProductResource($product->load('category', 'baseUnit', 'productUnits.unit', 'variants', 'stockLevels.warehouse'));
-    }
+        try {
+            $product = $this->productService->createProduct($request->validated());
 
-    public function update(Request $request, Product $product): \App\Http\Resources\ProductResource
-    {
-        $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'sku' => 'sometimes|nullable|string|max:255|unique:products,sku,' . $product->id . ',id,tenant_id,' . $request->user()->tenant_id,
-            'barcode' => 'sometimes|nullable|string|max:255|unique:products,barcode,' . $product->id . ',id,tenant_id,' . $request->user()->tenant_id,
-            'category_id' => 'sometimes|nullable|exists:categories,id',
-            'base_unit_id' => 'sometimes|nullable|exists:units,id',
-            'description' => 'sometimes|nullable|string',
-            'image' => 'sometimes|nullable|image|max:2048',
-            'cost_price' => 'sometimes|nullable|numeric|min:0',
-            'selling_price' => 'sometimes|nullable|numeric|min:0',
-            'min_price' => 'sometimes|nullable|numeric|min:0',
-            'reorder_level' => 'sometimes|nullable|integer|min:0',
-            'reorder_quantity' => 'sometimes|nullable|integer|min:0',
-            'is_active' => 'sometimes|boolean',
-            'is_sellable' => 'sometimes|boolean',
-            'is_purchasable' => 'sometimes|boolean',
-            'track_inventory' => 'sometimes|boolean',
-            'has_variants' => 'sometimes|boolean',
-            'allow_negative_stock' => 'sometimes|boolean',
-            'tax_type' => 'sometimes|nullable|in:inclusive,exclusive,exempt',
-            'tax_rate' => 'sometimes|nullable|numeric|min:0|max:100',
-            'attributes' => 'sometimes|nullable|array',
-        ]);
-
-        $data = $request->all();
-
-        if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('products', 'public');
-            $data['image'] = $path;
+            return $this->successResponse(new ProductResource($product), 'Product created successfully', 201);
+        } catch (InventoryException $e) {
+            return $this->errorResponse($e->getMessage(), 422, [], $e->getCode());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->errorResponse('Validation failed', 422, ['errors' => $e->errors()], 'VALIDATION_ERROR');
+        } catch (\Exception $e) {
+            return $this->errorResponse('An internal error occurred while creating the product.', 500);
         }
+    }
 
-        $product->update($data);
+    public function show(Product $product): JsonResponse
+    {
+        return $this->successResponse(new ProductResource($product->load(['category', 'baseUnit', 'brand', 'productUnits.unit', 'variants', 'stockLevels.warehouse'])));
+    }
 
-        return new \App\Http\Resources\ProductResource($product->load('category', 'baseUnit', 'productUnits.unit', 'variants', 'stockLevels.warehouse'));
+    public function update(UpdateProductRequest $request, Product $product): JsonResponse
+    {
+        try {
+            $data = $request->validated();
+
+            if ($request->hasFile('image')) {
+                $data['image'] = $request->file('image');
+            }
+
+            $updatedProduct = $this->productService->updateProduct($product->id, $data);
+
+            return $this->successResponse(new ProductResource($updatedProduct), 'Product updated successfully');
+        } catch (InventoryException $e) {
+            return $this->errorResponse($e->getMessage(), 422, [], $e->getCode());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->errorResponse('Validation failed', 422, ['errors' => $e->errors()], 'VALIDATION_ERROR');
+        } catch (\Exception $e) {
+            return $this->errorResponse('An internal error occurred while updating the product.', 500);
+        }
     }
 
     public function destroy(Product $product): JsonResponse
     {
-        DB::beginTransaction();
         try {
-            // Delete stock levels
-            $product->stockLevels()->delete();
-            
-            // Delete variants
-            $product->variants()->delete();
-            
-            // Delete product units
-            $product->productUnits()->delete();
-            
-            // Delete the product
-            $product->delete();
+            $this->productService->deleteProduct($product->id);
 
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Product deleted successfully',
-            ]);
+            return $this->successResponse(null, 'Product deleted successfully');
+        } catch (InventoryException $e) {
+            return $this->errorResponse($e->getMessage(), 422, [], $e->getCode());
         } catch (\Exception $e) {
-            DB::rollback();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete product: ' . $e->getMessage(),
-            ], 500);
+            return $this->errorResponse('An internal error occurred. Please try again later.', 500);
         }
     }
 
     public function stock(Product $product): JsonResponse
     {
-        $stockLevels = StockLevel::where('product_id', $product->id)
-            ->with('warehouse')
-            ->get();
+        $this->authorize('view', $product);
+        $stockLevels = $this->productService->getProductStock($product->id);
 
-        return response()->json([
-            'success' => true,
-            'data' => \App\Http\Resources\StockLevelResource::collection($stockLevels),
-        ]);
+        return $this->successResponse(StockLevelResource::collection($stockLevels));
     }
 
-    public function storeVariant(Request $request, Product $product): \App\Http\Resources\ProductVariantResource
+    public function storeVariant(Request $request, Product $product): JsonResponse
     {
+        $this->authorize('update', $product);
         $request->validate([
             'name' => 'required|string|max:255',
             'sku' => 'nullable|string|max:255|unique:product_variants,sku,NULL,id,product_id,' . $product->id,
@@ -162,20 +130,19 @@ class ProductController extends Controller
         ]);
 
         $data = $request->all();
-        $data['product_id'] = $product->id;
 
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('product_variants', 'public');
-            $data['image'] = $path;
+            $data['image'] = $request->file('image');
         }
 
-        $variant = ProductVariant::create($data);
+        $variant = $this->productService->createVariant($product->id, $data);
 
-        return new \App\Http\Resources\ProductVariantResource($variant);
+        return $this->successResponse(new ProductVariantResource($variant), 'Product variant created successfully', 201);
     }
 
-    public function updateVariant(Request $request, Product $product, ProductVariant $variant): \App\Http\Resources\ProductVariantResource
+    public function updateVariant(Request $request, Product $product, ProductVariant $variant): JsonResponse
     {
+        $this->authorize('update', $product);
         $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'sku' => 'sometimes|nullable|string|max:255|unique:product_variants,sku,' . $variant->id . ',id,product_id,' . $product->id,
@@ -190,22 +157,19 @@ class ProductController extends Controller
         $data = $request->all();
 
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('product_variants', 'public');
-            $data['image'] = $path;
+            $data['image'] = $request->file('image');
         }
 
-        $variant->update($data);
+        $updatedVariant = $this->productService->updateVariant($variant->id, $data);
 
-        return new \App\Http\Resources\ProductVariantResource($variant);
+        return $this->successResponse(new ProductVariantResource($updatedVariant), 'Product variant updated successfully');
     }
 
     public function destroyVariant(Product $product, ProductVariant $variant): JsonResponse
     {
-        $variant->delete();
+        $this->authorize('update', $product);
+        $this->productService->deleteVariant($variant->id);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Product variant deleted successfully',
-        ]);
+        return $this->successResponse(null, 'Product variant deleted successfully');
     }
 }

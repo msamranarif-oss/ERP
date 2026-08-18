@@ -12,10 +12,11 @@ use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Permission\Traits\HasRoles;
 use App\Traits\BelongsToTenant;
+use App\Traits\LogsActivityForTenant;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, HasApiTokens, HasRoles, SoftDeletes, LogsActivity, BelongsToTenant;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles, SoftDeletes, LogsActivityForTenant;
 
     protected $fillable = [
         'tenant_id',

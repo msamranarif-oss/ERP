@@ -28,6 +28,9 @@ class SetTenantMiddleware
             return response()->json(['message' => 'User account is inactive'], 403);
         }
 
+        // Set tenant context for the request
+        $request->attributes->set('tenant_id', $user->tenant_id);
+
         return $next($request);
     }
 }

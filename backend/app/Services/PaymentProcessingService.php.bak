@@ -1,0 +1,325 @@
+<?php
+
+namespace App\Services;
+
+/**
+ * Payment Processing Service
+ * 
+ * Handles payment calculations, validation, and processing
+ * WITHOUT external payment gateways.
+ */
+class PaymentProcessingService
+{
+    /**
+     * Validate split payment allocation
+     * 
+     * @param array $payments
+     * @param float $totalAmount
+     * @param array $context
+     * @return array
+     */
+    public function validateSplitPayments(array $payments, float $totalAmount, array $context = []): array
+    {
+        $errors = [];
+        $totalPaid = 0;
+        $validatedPayments = [];
+
+        foreach ($payments as $index => $payment) {
+            $amount = (float) ($payment['amount'] ?? 0);
+
+            if ($amount <= 0) {
+                $errors[] = "Payment #{$index} has invalid amount";
+                continue;
+            }
+
+            // Check for negative payment amounts
+            if ($amount < 0) {
+                $errors[] = "Payment #{$index} has negative amount";
+                continue;
+            }
+
+            // Validate credit limit if applicable
+            if (isset($payment['type']) && $payment['type'] === 'credit' && !empty($context['customer_credit_limit'])) {
+                $availableCredit = $context['customer_credit_limit'] - ($context['customer_balance'] ?? 0);
+                if ($amount > $availableCredit) {
+                    $errors[] = "Payment #{$index} exceeds available credit ({$availableCredit})";
+                    continue;
+                }
+            }
+
+            $totalPaid += $amount;
+            $validatedPayments[] = $payment;
+        }
+
+        $overpayment = max(0, $totalPaid - $totalAmount);
+        $valid = empty($errors) && $totalPaid >= $totalAmount;
+
+        if (!$valid && empty($errors)) {
+            $errors[] = "Insufficient payment: {$totalPaid} < {$totalAmount}";
+        }
+
+        return [
+            'valid' => $valid,
+            'errors' => $errors,
+            'total_paid' => round($totalPaid, 2),
+            'total_amount' => round($totalAmount, 2),
+            'overpayment' => round($overpayment, 2),
+            'validated_payments' => $validatedPayments,
+        ];
+    }
+
+    /**
+     * Calculate change due with bill breakdown
+     * 
+     * @param float $amountPaid
+     * @param float $totalAmount
+     * @return array
+     */
+    public function calculateChange(float $amountPaid, float $totalAmount): array
+    {
+        $changeDue = max(0, $amountPaid - $totalAmount);
+        $requiresChange = $changeDue > 0;
+        $billBreakdown = [];
+
+        if ($requiresChange) {
+            $billBreakdown = $this->calculateBillBreakdown($changeDue);
+        }
+
+        return [
+            'amount_paid' => round($amountPaid, 2),
+            'total_amount' => round($totalAmount, 2),
+            'change_due' => round($changeDue, 2),
+            'requires_change' => $requiresChange,
+            'bill_breakdown' => $billBreakdown,
+        ];
+    }
+
+    /**
+     * Calculate bill breakdown for change
+     * 
+     * @param float $amount
+     * @return array
+     */
+    protected function calculateBillBreakdown(float $amount): array
+    {
+        $breakdown = [];
+        $remaining = $amount;
+
+        $denominations = [
+            'hundred_dollar' => 100.00,
+            'fifty_dollar' => 50.00,
+            'twenty_dollar' => 20.00,
+            'ten_dollar' => 10.00,
+            'five_dollar' => 5.00,
+            'one_dollar' => 1.00,
+            'quarter' => 0.25,
+            'dime' => 0.10,
+            'nickel' => 0.05,
+            'penny' => 0.01,
+        ];
+
+        foreach ($denominations as $name => $value) {
+            if ($remaining >= $value) {
+                $count = (int) floor($remaining / $value);
+                $total = $count * $value;
+                $breakdown[$name] = [
+                    'count' => $count,
+                    'value' => $value,
+                    'total' => round($total, 2),
+                ];
+                $remaining = round($remaining - $total, 2);
+            }
+        }
+
+        return $breakdown;
+    }
+
+    /**
+     * Calculate tip amount
+     * 
+     * @param float $subtotal
+     * @param float $tipPercentage
+     * @param float $customTip
+     * @return array
+     */
+    public function calculateTip(float $subtotal, float $tipPercentage = 0, float $customTip = 0): array
+    {
+        $tipAmount = 0;
+
+        if ($customTip > 0) {
+            $tipAmount = $customTip;
+            $tipPercentage = round(($customTip / $subtotal) * 100, 2);
+        } elseif ($tipPercentage > 0) {
+            $tipAmount = round($subtotal * ($tipPercentage / 100), 2);
+        }
+
+        $totalWithTip = round($subtotal + $tipAmount, 2);
+
+        return [
+            'subtotal' => round($subtotal, 2),
+            'tip_percentage' => round($tipPercentage, 2),
+            'tip_amount' => round($tipAmount, 2),
+            'total_with_tip' => $totalWithTip,
+            'has_tip' => $tipAmount > 0,
+        ];
+    }
+
+    /**
+     * Calculate total with tip and tax
+     * 
+     * @param float $subtotal
+     * @param float $tax
+     * @param float $tip
+     * @return array
+     */
+    public function calculateTotalWithTip(float $subtotal, float $tax, float $tip = 0): array
+    {
+        $total = round($subtotal + $tax + $tip, 2);
+
+        return [
+            'subtotal' => round($subtotal, 2),
+            'tax' => round($tax, 2),
+            'tip' => round($tip, 2),
+            'total' => $total,
+            'has_tip' => $tip > 0,
+        ];
+    }
+
+    /**
+     * Allocate tip across payment methods proportionally
+     * 
+     * @param array $payments
+     * @param float $totalTip
+     * @return array
+     */
+    public function allocateTipAcrossPayments(array $payments, float $totalTip): array
+    {
+        if (empty($payments) || $totalTip <= 0) {
+            return $payments;
+        }
+
+        $totalAmount = array_sum(array_map(fn($p) => (float) $p['amount'], $payments));
+        $paymentsWithTip = [];
+        $allocatedTip = 0;
+
+        foreach ($payments as $index => $payment) {
+            $amount = (float) $payment['amount'];
+            
+            // Calculate proportional tip
+            if ($totalAmount > 0) {
+                $proportionalTip = ($amount / $totalAmount) * $totalTip;
+            } else {
+                $proportionalTip = 0;
+            }
+
+            // For the last payment, adjust for rounding
+            if ($index === count($payments) - 1) {
+                $tipAmount = round($totalTip - $allocatedTip, 2);
+            } else {
+                $tipAmount = round($proportionalTip, 2);
+                $allocatedTip += $tipAmount;
+            }
+
+            $paymentsWithTip[] = array_merge($payment, [
+                'tip_amount' => $tipAmount,
+                'total_with_tip' => round($amount + $tipAmount, 2),
+            ]);
+        }
+
+        return $paymentsWithTip;
+    }
+
+    /**
+     * Validate cash payment is sufficient
+     * 
+     * @param float $cashAmount
+     * @param float $totalAmount
+     * @return array
+     */
+    public function validateCashPayment(float $cashAmount, float $totalAmount): array
+    {
+        $valid = $cashAmount >= $totalAmount;
+        $errors = [];
+        $changeDue = 0;
+
+        if (!$valid) {
+            $errors[] = "Insufficient cash payment";
+        } else {
+            $changeDue = round($cashAmount - $totalAmount, 2);
+        }
+
+        return [
+            'valid' => $valid,
+            'errors' => $errors,
+            'change_due' => $changeDue,
+            'cash_amount' => round($cashAmount, 2),
+            'total_amount' => round($totalAmount, 2),
+        ];
+    }
+
+    /**
+     * Format payment summary for receipt
+     * 
+     * @param array $payments
+     * @param float $totalAmount
+     * @param float $tip
+     * @return array
+     */
+    public function formatPaymentSummary(array $payments, float $totalAmount, float $tip = 0): array
+    {
+        $subtotalPayments = array_sum(array_map(fn($p) => (float) $p['amount'], $payments));
+        $changeDue = max(0, $subtotalPayments - $totalAmount - $tip);
+        $saleTotal = round($totalAmount + $tip, 2);
+
+        return [
+            'subtotal_payments' => round($subtotalPayments, 2),
+            'sale_total' => $saleTotal,
+            'tip' => round($tip, 2),
+            'change_due' => round($changeDue, 2),
+            'payment_count' => count($payments),
+            'payments' => $payments,
+        ];
+    }
+
+    /**
+     * Check if sale is fully paid
+     * 
+     * @param float $totalAmount
+     * @param float $totalPaid
+     * @return bool
+     */
+    public function isFullyPaid(float $totalAmount, float $totalPaid): bool
+    {
+        return $totalPaid >= $totalAmount;
+    }
+
+    /**
+     * Get payment status
+     * 
+     * @param float $totalAmount
+     * @param float $totalPaid
+     * @return string
+     */
+    public function getPaymentStatus(float $totalAmount, float $totalPaid): string
+    {
+        if ($totalPaid <= 0) {
+            return 'unpaid';
+        } elseif ($totalPaid >= $totalAmount) {
+            return 'paid';
+        } else {
+            return 'partial';
+        }
+    }
+
+    /**
+     * Get remaining balance
+     * 
+     * @param float $totalAmount
+     * @param float $totalPaid
+     * @return float
+     */
+    public function getRemainingBalance(float $totalAmount, float $totalPaid): float
+    {
+        return max(0, round($totalAmount - $totalPaid, 2));
+    }
+}

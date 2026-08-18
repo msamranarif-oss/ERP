@@ -2,15 +2,20 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\LogsActivityForTenant;
+
 class StockLevel extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToTenant, SoftDeletes, LogsActivityForTenant;
 
     protected $fillable = [
+        'tenant_id',
         'product_id',
         'variant_id',
         'warehouse_id',

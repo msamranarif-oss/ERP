@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\BelongsToTenant;
+use App\Traits\LogsActivityForTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Sale extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToTenant;
+    use BelongsToTenant, HasFactory, LogsActivityForTenant, SoftDeletes;
 
     protected $fillable = [
         'tenant_id',
@@ -29,17 +30,26 @@ class Sale extends Model
         'tax_amount',
         'shipping_amount',
         'total',
+        'cogs_amount',
         'paid_amount',
         'change_amount',
         'balance_due',
         'payment_status',
         'status',
+        'accounting_status',
+        'accounting_failure_reason',
         'notes',
         'internal_notes',
         'sold_by',
         'voided_by',
         'voided_at',
         'void_reason',
+        'coupon_id',
+        'coupon_discount_amount',
+        'points_redeemed',
+        'loyalty_discount_amount',
+        'restaurant_table_id',
+        'order_type',
     ];
 
     protected $casts = [
@@ -50,10 +60,14 @@ class Sale extends Model
         'tax_amount' => 'decimal:2',
         'shipping_amount' => 'decimal:2',
         'total' => 'decimal:2',
+        'cogs_amount' => 'decimal:2',
         'paid_amount' => 'decimal:2',
         'change_amount' => 'decimal:2',
         'balance_due' => 'decimal:2',
         'voided_at' => 'datetime',
+        'coupon_discount_amount' => 'decimal:2',
+        'points_redeemed' => 'decimal:2',
+        'loyalty_discount_amount' => 'decimal:2',
     ];
 
     public function branch(): BelongsTo
@@ -81,6 +95,11 @@ class Sale extends Model
         return $this->belongsTo(User::class, 'sold_by');
     }
 
+    public function cashier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sold_by');
+    }
+
     public function voidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'voided_by');
@@ -104,6 +123,21 @@ class Sale extends Model
     public function creditSale()
     {
         return $this->hasOne(CreditSale::class);
+    }
+
+    public function coupon(): BelongsTo
+    {
+        return $this->belongsTo(Coupon::class);
+    }
+
+    public function loyaltyTransactions(): HasMany
+    {
+        return $this->hasMany(LoyaltyTransaction::class);
+    }
+
+    public function restaurantTable(): BelongsTo
+    {
+        return $this->belongsTo(RestaurantTable::class, 'restaurant_table_id');
     }
 
     public function scopeCompleted($query)

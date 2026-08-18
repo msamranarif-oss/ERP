@@ -7,9 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Traits\LogsActivityForTenant;
+
 class Tenant extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, LogsActivityForTenant, SoftDeletes;
 
     protected $fillable = [
         'name',

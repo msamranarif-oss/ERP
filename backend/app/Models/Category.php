@@ -8,10 +8,26 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\LogsActivityForTenant;
 
 class Category extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToTenant;
+    use HasFactory, BelongsToTenant, SoftDeletes, LogsActivityForTenant;
+    
+    protected static function booted()
+    {
+        static::creating(function ($category) {
+            if (empty($category->slug)) {
+                $category->slug = str($category->name)->slug();
+            }
+        });
+
+        static::updating(function ($category) {
+            if ($category->isDirty('name') && !$category->isDirty('slug')) {
+                $category->slug = str($category->name)->slug();
+            }
+        });
+    }
 
     protected $fillable = [
         'tenant_id',

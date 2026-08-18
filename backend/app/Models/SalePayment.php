@@ -7,11 +7,15 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\LogsActivityForTenant;
+
 class SalePayment extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use HasFactory, BelongsToTenant, SoftDeletes, LogsActivityForTenant;
 
     protected $fillable = [
+        'tenant_id',
         'sale_id',
         'payment_method_id',
         'amount',

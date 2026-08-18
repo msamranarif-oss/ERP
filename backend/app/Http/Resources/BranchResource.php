@@ -18,6 +18,7 @@ class BranchResource extends JsonResource
             'is_active' => $this->is_active,
             'manager_name' => $this->manager_name,
             'manager_phone' => $this->manager_phone,
+            'settings' => $this->settings,
             'created_at' => $this->created_at->toISOString(),
             'updated_at' => $this->updated_at->toISOString(),
         ];

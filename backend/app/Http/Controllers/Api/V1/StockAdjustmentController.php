@@ -2,22 +2,33 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Helpers\ApiResponse;
 use App\Http\Controllers\Controller;
 use App\Models\StockAdjustment;
 use App\Models\StockAdjustmentItem;
 use App\Models\Warehouse;
 use App\Models\Product;
+use App\Services\JournalAutoPostService;
+use App\Services\StockAdjustmentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class StockAdjustmentController extends Controller
 {
-    public function __construct()
-    {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+    protected $stockAdjustmentService;
+    protected JournalAutoPostService $autoPostService;
+
+    public function __construct(
+        StockAdjustmentService $stockAdjustmentService,
+        JournalAutoPostService $autoPostService
+    ) {
+        $this->stockAdjustmentService = $stockAdjustmentService;
+        $this->autoPostService        = $autoPostService;
+        $this->authorizeResource(StockAdjustment::class, 'stock_adjustment');
     }
+   
 
     public function index(Request $request)
     {
@@ -78,8 +89,8 @@ class StockAdjustmentController extends Controller
                 'reason' => $validated['reason'],
                 'notes' => $validated['notes'] ?? null,
                 'status' => 'pending',
-                'tenant_id' => auth()->user()->tenant_id,
-                'created_by' => auth()->id(),
+                'tenant_id' => request()->user()->tenant_id,
+                'created_by' => request()->user()->id,
             ]);
 
             foreach ($validated['items'] as $item) {
@@ -88,7 +99,7 @@ class StockAdjustmentController extends Controller
                     'quantity' => $item['quantity'],
                     'unit_cost' => $item['unit_cost'] ?? 0,
                     'reason' => $item['reason'] ?? $validated['reason'],
-                    'tenant_id' => auth()->user()->tenant_id,
+                    'tenant_id' => request()->user()->tenant_id,
                 ]);
             }
 
@@ -103,7 +114,7 @@ class StockAdjustmentController extends Controller
             DB::rollback();
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create stock adjustment: ' . $e->getMessage()
+                'message' => 'An internal error occurred. Please try again later.'
             ], 500);
         }
     }
@@ -161,7 +172,7 @@ class StockAdjustmentController extends Controller
                         'quantity' => $item['quantity'],
                         'unit_cost' => $item['unit_cost'] ?? 0,
                         'reason' => $item['reason'] ?? $validated['reason'],
-                        'tenant_id' => auth()->user()->tenant_id,
+                        'tenant_id' => request()->user()->tenant_id,
                     ]);
                 }
             }
@@ -205,21 +216,80 @@ class StockAdjustmentController extends Controller
         if ($stock_adjustment->status !== 'pending') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot approve stock adjustment that is not in pending status.'
+                'message' => 'Cannot approve stock adjustment that is not in pending status.',
             ], 422);
         }
 
-        $stock_adjustment->update([
-            'status' => 'approved',
-            'approved_by' => auth()->id(),
-            'approved_at' => now()
-        ]);
+        DB::beginTransaction();
+        try {
+            // Fix 13: Apply the actual quantity changes to stock levels
+            foreach ($stock_adjustment->items as $item) {
+                $stockLevel = \App\Models\StockLevel::firstOrCreate([
+                    'tenant_id'    => $stock_adjustment->tenant_id,
+                    'warehouse_id' => $stock_adjustment->warehouse_id,
+                    'product_id'   => $item->product_id,
+                    'variant_id'   => null,
+                    'batch_id'     => null,
+                ]);
 
-        return response()->json([
-            'success' => true,
-            'data' => $stock_adjustment,
-            'message' => 'Stock adjustment approved successfully.'
-        ]);
+                $quantityBefore = $stockLevel->quantity ?? 0;
+
+                if ($stock_adjustment->adjustment_type === 'addition') {
+                    $stockLevel->increment('quantity', $item->quantity);
+                } else {
+                    // subtraction — guard against going negative
+                    $deduct = min($stockLevel->quantity, $item->quantity);
+                    $stockLevel->decrement('quantity', $deduct);
+                }
+
+                $quantityAfter = $stockLevel->fresh()->quantity;
+
+                \App\Models\StockMovement::create([
+                    'tenant_id'       => $stock_adjustment->tenant_id,
+                    'warehouse_id'    => $stock_adjustment->warehouse_id,
+                    'product_id'      => $item->product_id,
+                    'reference_type'  => 'StockAdjustment',
+                    'reference_id'    => $stock_adjustment->id,
+                    'type'            => $stock_adjustment->adjustment_type === 'addition' ? 'in' : 'out',
+                    'quantity'        => $item->quantity,
+                    'quantity_before' => $quantityBefore,
+                    'quantity_after'  => $quantityAfter,
+                    'unit_cost'       => $item->unit_cost ?? 0,
+                    'notes'           => $item->reason,
+                    'created_by'      => request()->user()->id,
+                ]);
+            }
+
+            $stock_adjustment->update([
+                'status'      => 'approved',
+                'approved_by' => request()->user()->id,
+                'approved_at' => now(),
+            ]);
+
+            DB::commit();
+
+            // Task 7: Post inventory-valuation journal entry (non-fatal)
+            try {
+                $this->autoPostService->postStockAdjustment($stock_adjustment);
+            } catch (\Exception $e) {
+                Log::warning('postStockAdjustment failed', [
+                    'adjustment_id' => $stock_adjustment->id,
+                    'error'         => $e->getMessage(),
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data'    => $stock_adjustment->load(['warehouse', 'items.product', 'createdBy', 'approvedBy']),
+                'message' => 'Stock adjustment approved and stock levels updated successfully.',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollback();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to approve stock adjustment: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function reject(StockAdjustment $stock_adjustment, Request $request)
@@ -233,7 +303,7 @@ class StockAdjustmentController extends Controller
 
         $stock_adjustment->update([
             'status' => 'rejected',
-            'rejected_by' => auth()->id(),
+            'rejected_by' => request()->user()->id,
             'rejected_at' => now(),
             'rejection_reason' => $request->rejection_reason
         ]);

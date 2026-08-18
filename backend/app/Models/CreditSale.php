@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CreditSale extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToTenant;
+    use HasFactory, BelongsToTenant, SoftDeletes;
 
     protected $fillable = [
         'tenant_id',
@@ -71,14 +71,26 @@ class CreditSale extends Model
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    public function installments(): HasMany
+    {
+        return $this->hasMany(Installment::class);
+    }
+
     public function schedules(): HasMany
     {
-        return $this->hasMany(InstallmentSchedule::class);
+        // Deprecated: Use installments() instead
+        // This method now points to the unified Installment model
+        return $this->hasMany(Installment::class);
     }
 
     public function reminders(): HasMany
     {
         return $this->hasMany(PaymentReminder::class);
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(CreditSaleItem::class);
     }
 
     public function scopeActive($query)
@@ -88,7 +100,7 @@ class CreditSale extends Model
 
     public function scopeOverdue($query)
     {
-        return $query->whereHas('schedules', function ($q) {
+        return $query->whereHas('installments', function ($q) {
             $q->where('status', 'overdue');
         });
     }

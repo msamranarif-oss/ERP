@@ -3,15 +3,17 @@
 namespace App\Models;
 
 use App\Traits\BelongsToTenant;
+use App\Traits\LogsActivityForTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ChartOfAccount extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToTenant;
+    use BelongsToTenant, HasFactory, LogsActivityForTenant, SoftDeletes;
 
     protected $table = 'chart_of_accounts';
 
@@ -20,6 +22,7 @@ class ChartOfAccount extends Model
         'parent_id',
         'account_type_id',
         'code',
+        'system_slug',
         'name',
         'description',
         'is_active',
@@ -56,6 +59,18 @@ class ChartOfAccount extends Model
     public function journalEntryLines(): HasMany
     {
         return $this->hasMany(JournalEntryLine::class, 'account_id');
+    }
+
+    public function journalEntries(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            JournalEntry::class,
+            JournalEntryLine::class,
+            'account_id',
+            'id',
+            'id',
+            'journal_entry_id'
+        );
     }
 
     public function scopeActive($query)

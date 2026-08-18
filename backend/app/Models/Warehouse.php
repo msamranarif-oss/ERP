@@ -8,10 +8,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\LogsActivityForTenant;
 
 class Warehouse extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToTenant;
+    use HasFactory, BelongsToTenant, SoftDeletes, LogsActivityForTenant;
 
     protected $fillable = [
         'tenant_id',

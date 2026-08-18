@@ -21,6 +21,7 @@ class ProductResource extends JsonResource
             'reorder_level' => $this->reorder_level,
             'reorder_quantity' => $this->reorder_quantity,
             'is_active' => $this->is_active,
+            'tenant_id' => $this->tenant_id,
             'is_sellable' => $this->is_sellable,
             'is_purchasable' => $this->is_purchasable,
             'track_inventory' => $this->track_inventory,
@@ -41,8 +42,12 @@ class ProductResource extends JsonResource
             'variants' => $this->whenLoaded('variants', function () {
                 return ProductVariantResource::collection($this->variants);
             }),
+            'batches' => $this->whenLoaded('batches'),
+            'serial_numbers' => $this->whenLoaded('serialNumbers'),
             'total_stock' => $this->total_stock,
             'available_stock' => $this->available_stock,
+            'matched_unit_id' => $this->matched_unit_id ?? null,
+            'dynamic_quantity' => $this->dynamic_quantity ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

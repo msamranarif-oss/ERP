@@ -2,20 +2,21 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Models\Supplier;
+use App\Http\Requests\Inventory\StoreSupplierRequest;
+use App\Http\Requests\Inventory\UpdateSupplierRequest;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
-class SupplierController extends Controller
+class SupplierController extends ApiController
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum');
-        $this->middleware('tenant');
+        $this->authorizeResource(Supplier::class, 'supplier');
     }
 
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
         $query = Supplier::query();
 
@@ -34,85 +35,35 @@ class SupplierController extends Controller
 
         $suppliers = $query->orderBy('name')->paginate($request->per_page ?? 15);
 
-        return response()->json([
-            'success' => true,
-            'data' => $suppliers
-        ]);
+        return $this->successResponse($suppliers);
     }
 
-    public function store(Request $request)
+    public function store(StoreSupplierRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'code' => 'nullable|string|max:50|unique:suppliers,code,NULL,id,tenant_id,' . auth()->user()->tenant_id,
-            'email' => 'nullable|email|max:255',
-            'phone' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:500',
-            'city' => 'nullable|string|max:100',
-            'country' => 'nullable|string|max:100',
-            'contact_person' => 'nullable|string|max:255',
-            'tax_number' => 'nullable|string|max:50',
-            'is_active' => 'boolean',
-            'notes' => 'nullable|string|max:1000',
+        $supplier = Supplier::create([
+            ...$request->validated(),
+            'tenant_id' => $request->user()->tenant_id,
         ]);
 
-        $supplier = Supplier::create($validated);
-
-        return response()->json([
-            'success' => true,
-            'data' => $supplier,
-            'message' => 'Supplier created successfully.'
-        ], 201);
+        return $this->successResponse($supplier, 'Supplier created successfully.', 201);
     }
 
-    public function show(Supplier $supplier)
+    public function show(Supplier $supplier): JsonResponse
     {
-        return response()->json([
-            'success' => true,
-            'data' => $supplier
-        ]);
+        return $this->successResponse($supplier);
     }
 
-    public function update(Request $request, Supplier $supplier)
+    public function update(UpdateSupplierRequest $request, Supplier $supplier): JsonResponse
     {
-        $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'code' => [
-                'sometimes',
-                'nullable',
-                'string',
-                'max:50',
-                Rule::unique('suppliers')->ignore($supplier->id)->where(function ($query) {
-                    return $query->where('tenant_id', auth()->user()->tenant_id);
-                })
-            ],
-            'email' => 'sometimes|nullable|email|max:255',
-            'phone' => 'sometimes|nullable|string|max:20',
-            'address' => 'sometimes|nullable|string|max:500',
-            'city' => 'sometimes|nullable|string|max:100',
-            'country' => 'sometimes|nullable|string|max:100',
-            'contact_person' => 'sometimes|nullable|string|max:255',
-            'tax_number' => 'sometimes|nullable|string|max:50',
-            'is_active' => 'sometimes|boolean',
-            'notes' => 'sometimes|nullable|string|max:1000',
-        ]);
+        $supplier->update($request->validated());
 
-        $supplier->update($validated);
-
-        return response()->json([
-            'success' => true,
-            'data' => $supplier,
-            'message' => 'Supplier updated successfully.'
-        ]);
+        return $this->successResponse($supplier, 'Supplier updated successfully.');
     }
 
-    public function destroy(Supplier $supplier)
+    public function destroy(Supplier $supplier): JsonResponse
     {
         $supplier->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Supplier deleted successfully.'
-        ]);
+        return $this->successResponse(null, 'Supplier deleted successfully.');
     }
 }

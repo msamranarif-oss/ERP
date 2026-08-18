@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Helpers\ApiResponse;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Role;
@@ -102,57 +103,12 @@ class UserController extends Controller
 
     public function destroy(User $user): JsonResponse
     {
-        $this->authorizeForTenant($user);
-        
-        $currentUser = request()->user();
-        // Only admins can delete users
-        if (!$currentUser->hasRole(['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized to delete users');
-        }
-
-        if ($user->id === auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cannot delete your own account',
-            ], 400);
+        if ($user->id === request()->user()->id) {
+            return ApiResponse::error('Cannot delete your own account', 400, [], 'SELF_ACCOUNT_DELETE');
         }
 
         $user->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'User deleted successfully',
-        ]);
-    }
-
-    private function authorizeForTenant($model)
-    {
-        if ($model->tenant_id !== request()->user()->tenant_id) {
-            abort(403, 'Unauthorized to access this resource');
-        }
-    }
-    
-    protected function authorizeAction($action, $resource = null)
-    {
-        $user = request()->user();
-        
-        // Super admin can do everything
-        if ($user->hasRole('super-admin')) {
-            return true;
-        }
-        
-        // Regular users can only view/update themselves
-        if ($action === 'self' && $resource && $resource->id === $user->id) {
-            return true;
-        }
-        
-        // Admin and managers can manage users
-        if (in_array($action, ['view', 'create', 'update', 'delete'])) {
-            if ($user->hasRole(['admin', 'manager'])) {
-                return true;
-            }
-        }
-        
-        abort(403, 'Insufficient permissions');
+        return ApiResponse::deleted('User deleted successfully');
     }
 }

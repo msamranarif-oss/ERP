@@ -6,9 +6,11 @@ use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+use Illuminate\Database\Eloquent\SoftDeletes;
+
 class PaymentMethod extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use HasFactory, BelongsToTenant, SoftDeletes;
 
     protected $fillable = [
         'tenant_id',
@@ -30,6 +32,11 @@ class PaymentMethod extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function salePayments()
+    {
+        return $this->hasMany(SalePayment::class);
     }
 
     public function isCash(): bool
